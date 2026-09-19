@@ -1,0 +1,6 @@
+import { composeStyleVector } from '@/lib/vector';
+import { deriveVibe } from '@/lib/vibe';
+import { STYLE_DIMENSIONS, type ImageAttributes, type Questionnaire, type StyleDimension, type StyleProfile } from '@/lib/types';
+const labels: Record<StyleDimension, string> = { minimalism: 'Minimal', streetwear: 'Street', workwear: 'Utilitarian', outdoor: 'Outdoorsy', vintage: 'Vintage', formal: 'Refined', colorfulness: 'Vivid', pattern: 'Patterned', relaxedFit: 'Relaxed' };
+const unique = (values: string[]) => [...new Set(values.filter(Boolean))];
+export function buildStyleProfile({ attributes, questionnaire }: { attributes: ImageAttributes[]; questionnaire: Questionnaire }): StyleProfile { const colors = unique(attributes.flatMap((a) => a.colors)); const silhouettes = unique(attributes.flatMap((a) => a.fit)); const materials = unique(attributes.flatMap((a) => a.materials)); const influences = unique(attributes.flatMap((a) => a.style)); const vector = composeStyleVector(attributes, questionnaire); const tags = [...STYLE_DIMENSIONS].sort((a, b) => vector[b] - vector[a]).slice(0, 3).map((d) => labels[d]); const now = new Date().toISOString(); const vibe = deriveVibe(colors); return { vector, vibes: [vibe], vibe, tags, dominantColors: colors, silhouettes, materials, influences, questionnaire, createdAt: now, updatedAt: now }; }

@@ -1,0 +1,3 @@
+import { STYLE_DIMENSIONS, type StyleDimension, type StyleVector } from '@/lib/types';
+export const DIMENSION_LABELS: Record<StyleDimension, string> = { minimalism: 'Minimal', streetwear: 'Street', workwear: 'Workwear', outdoor: 'Outdoor', vintage: 'Vintage', formal: 'Formal', colorfulness: 'Colour', pattern: 'Pattern', relaxedFit: 'Relaxed' };
+export function radarPoints(vector: StyleVector, radius: number, center: number) { return STYLE_DIMENSIONS.map((dimension, i) => { const angle = -Math.PI / 2 + i * 2 * Math.PI / STYLE_DIMENSIONS.length; const value = Math.max(0, Math.min(1, vector[dimension] ?? 0)); return { x: center + Math.cos(angle) * radius * value, y: center + Math.sin(angle) * radius * value, dimension, label: DIMENSION_LABELS[dimension] }; }); }

@@ -1,0 +1,2 @@
+import React from 'react'; import { View } from 'react-native'; import { useTheme } from '@/theme/useTheme';
+export function OnboardingProgress({ step, total = 4 }: { step: number; total?: number }) { const { base, accent, spacing } = useTheme(); return <View style={{ flexDirection: 'row', gap: spacing.xs, padding: spacing.md }}>{Array.from({ length: total }, (_, i) => <View key={i} style={{ height: 4, flex: 1, borderRadius: 2, backgroundColor: i < step ? accent.base : base.hairline }} />)}</View>; }

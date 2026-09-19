@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Stack } from 'expo-router';
+import { Redirect, Stack, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View } from 'react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
@@ -10,8 +10,8 @@ function RootLayoutInner() {
   const hydrated     = useAppStore((s) => s.hydrated);
   const themeMode    = useAppStore((s) => s.themeMode);
   const styleProfile = useAppStore((s) => s.styleProfile);
-  const loadDemoData = useAppStore((s) => s.loadDemoData);
   const setThemeMode = useAppStore((s) => s.setThemeMode);
+  const segments = useSegments();
 
   // Track whether we are running on the client. On the server this stays false
   // and we never try to wait for AsyncStorage rehydration (which never fires
@@ -23,13 +23,6 @@ function RootLayoutInner() {
     setMounted(true);
   }, []);
 
-  // Load demo data once when no profile exists (Task 21 replaces with onboarding gate).
-  useEffect(() => {
-    if (hydrated && styleProfile === null) {
-      loadDemoData();
-    }
-  }, [hydrated, styleProfile, loadDemoData]);
-
   // Block render until client-side hydration is confirmed.
   // On the server `mounted` is false — render null once (server + first client
   // render agree), then on the client we flip mounted and wait for hydrated.
@@ -38,6 +31,8 @@ function RootLayoutInner() {
       <View style={{ flex: 1, backgroundColor: BASE.canvas }} />
     );
   }
+
+  if (styleProfile === null && segments[0] !== 'onboarding') return <Redirect href="/onboarding" />;
 
   const profileVibe = styleProfile?.vibe ?? null;
 
