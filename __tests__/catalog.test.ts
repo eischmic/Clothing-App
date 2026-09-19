@@ -1,7 +1,21 @@
-import { seededProvider, ALL_PRODUCTS } from '@/lib/catalog/seeded';
+import { seededProvider, ALL_PRODUCTS, MIN_PRICE, MAX_PRICE } from '@/lib/catalog/seeded';
 import { CATEGORIES, COLOR_TO_FAMILY, STYLE_DIMENSIONS } from '@/lib/types';
 
 describe('seeded catalogue', () => {
+  it('keeps every price inside the spec price band', () => {
+    for (const p of ALL_PRODUCTS) {
+      expect(p.price).toBeGreaterThanOrEqual(MIN_PRICE);
+      expect(p.price).toBeLessThanOrEqual(MAX_PRICE);
+    }
+  });
+
+  it('is deterministic across repeated expansion', () => {
+    jest.resetModules();
+    const again = require('@/lib/catalog/seeded').ALL_PRODUCTS;
+    expect(again.map((p: { id: string; price: number }) => `${p.id}:${p.price}`))
+      .toEqual(ALL_PRODUCTS.map((p) => `${p.id}:${p.price}`));
+  });
+
   it('ships at least 150 products with unique ids', () => {
     expect(ALL_PRODUCTS.length).toBeGreaterThanOrEqual(150);
     expect(new Set(ALL_PRODUCTS.map((p) => p.id)).size).toBe(ALL_PRODUCTS.length);

@@ -22,6 +22,14 @@ function deterministicOffset(archetypeId: string, color: string): number {
   return (hash % 36) - 15;
 }
 
+/** Spec §9 fixes the catalogue's price band at $35–$320. */
+export const MIN_PRICE = 35;
+export const MAX_PRICE = 320;
+
+function clampPrice(price: number): number {
+  return Math.min(MAX_PRICE, Math.max(MIN_PRICE, price));
+}
+
 // ---------------------------------------------------------------------------
 // Expand archetypes × colors into Product[]
 // ---------------------------------------------------------------------------
@@ -60,7 +68,7 @@ function expandCatalogue(): Product[] {
       const vector = clampVector(rawVector);
 
       const priceOffset = deterministicOffset(arch.id, color);
-      const price = Math.max(1, arch.basePrice + priceOffset);
+      const price = clampPrice(arch.basePrice + priceOffset);
 
       const id = `${arch.id}-${color}`;
       const name = `${arch.baseName} in ${color.charAt(0).toUpperCase() + color.slice(1)}`;
