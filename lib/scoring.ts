@@ -46,12 +46,15 @@ export function styleScore(user: StyleVector, p: Product): number {
  * Wardrobe compatibility: fraction of wardrobe items that are compatible with
  * the product, scaled so 6+ pairings saturates to 1.
  */
+/** Pairings at or above this count saturate `wardrobeScore` to 1. */
+export const WARDROBE_SATURATION = 6;
+
 export function wardrobeScore(wardrobe: WardrobeItem[], p: Product): number {
   let count = 0;
   for (const item of wardrobe) {
     if (areCompatible(item, p)) count++;
   }
-  return Math.min(1, count / 6);
+  return Math.min(1, count / WARDROBE_SATURATION);
 }
 
 /**
@@ -59,6 +62,8 @@ export function wardrobeScore(wardrobe: WardrobeItem[], p: Product): number {
  * Formula: exp(-((price - center) / center)^2 / 0.5)
  */
 export function priceScore(price: number, center: number): number {
+  // A non-positive centre would divide by zero and poison `total` with NaN.
+  if (center <= 0) return 0;
   return Math.exp(-Math.pow((price - center) / center, 2) / 0.5);
 }
 
@@ -127,16 +132,13 @@ export interface ScoreProductArgs {
 export function scoreProduct(args: ScoreProductArgs): Recommendation {
   const { userVector, wardrobe, inspoImages, product, targetFormality, budgetCenter } = args;
 
-  const style    = styleScore(userVector, product);
-  const wardrobe_ = wardrobeScore(wardrobe, product);
-  const price    = priceScore(product.price, budgetCenter);
-  const occasion = occasionScore(product, targetFormality);
+  const compatibleItems = wardrobe.filter((item) => areCompatible(item, product));
 
   const scores: Record<ScoreComponent, number> = {
-    style,
-    wardrobe: wardrobe_,
-    price,
-    occasion,
+    style:    styleScore(userVector, product),
+    wardrobe: Math.min(1, compatibleItems.length / WARDROBE_SATURATION),
+    price:    priceScore(product.price, budgetCenter),
+    occasion: occasionScore(product, targetFormality),
   };
 
   const total =
@@ -145,9 +147,7 @@ export function scoreProduct(args: ScoreProductArgs): Recommendation {
     SCORE_WEIGHTS.price    * scores.price +
     SCORE_WEIGHTS.occasion * scores.occasion;
 
-  // Compatible wardrobe items (capped at 6 for display)
-  const compatibleItems = wardrobe.filter((item) => areCompatible(item, product));
-  const pairsWith = compatibleItems.slice(0, 6);
+  const pairsWith = compatibleItems.slice(0, WARDROBE_SATURATION);
 
   // New outfits unlocked
   const newOutfits = wardrobeImpact(wardrobe, product);

@@ -41,7 +41,15 @@ describe('component scores', () => {
       expect(wardrobeScore(DEMO_WARDROBE, p)).toBeLessThanOrEqual(1);
       expect(occasionScore(p, 3)).toBeGreaterThanOrEqual(0);
       expect(occasionScore(p, 3)).toBeLessThanOrEqual(1);
+      const style = styleScore({ ...zeroVector(), outdoor: 0.7, formal: 0.3 }, p);
+      expect(style).toBeGreaterThanOrEqual(0);
+      expect(style).toBeLessThanOrEqual(1);
     }
+  });
+
+  it('returns a finite price score for a degenerate budget centre', () => {
+    expect(priceScore(120, 0)).toBe(0);
+    expect(Number.isFinite(priceScore(120, -50))).toBe(true);
   });
 });
 
@@ -64,6 +72,18 @@ describe('rankProducts', () => {
 
   it('respects the intent category filter', () => {
     expect(rankProducts(args).every((r) => r.product.category === 'outerwear')).toBe(true);
+  });
+
+  it('does not filter by category for the event intent either', () => {
+    const cats = new Set(rankProducts({ ...args, intentId: 'event', limit: 20 }).map((r) => r.product.category));
+    expect(cats.size).toBeGreaterThan(1);
+  });
+
+  it('declares the spec target formality for every intent', () => {
+    expect(Object.fromEntries(INTENTS.map((i) => [i.id, i.targetFormality]))).toEqual({
+      jacket: 3, pants: 3, shoes: 3, everyday: 2, event: 4, surprise: 3,
+    });
+    expect(INTENTS.filter((i) => i.category === null).map((i) => i.id).sort()).toEqual(['event', 'surprise']);
   });
 
   it('applies the exact spec weights', () => {

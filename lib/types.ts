@@ -75,6 +75,8 @@ export const COLOR_TO_FAMILY: Record<string, ColorFamily> = {
 export interface InspoImage {
   id: string;
   uri: string;
+  /** `null` until the vision route returns, or if analysis failed. */
+  attributes: ImageAttributes | null;
   uploadedAt: string;
 }
 
@@ -112,8 +114,7 @@ export interface WardrobeItem {
   seasons: Season[];
   vector: StyleVector;
   /** `null` → render procedural `GarmentArt` instead of a photo. */
-  imageUri: string | null;
-  createdAt: string;
+  uri: string | null;
 }
 
 export type GarmentAttributes = Pick<WardrobeItem, 'name' | 'category' | 'color' | 'colorFamily' | 'formality' | 'seasons'>;

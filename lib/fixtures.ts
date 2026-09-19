@@ -62,8 +62,7 @@ function item(
     formality,
     seasons,
     vector: garmentToVector({ category, colorFamily, formality }),
-    imageUri: null,   // demo items render via GarmentArt
-    createdAt: '2026-09-01T00:00:00.000Z',
+    uri: null,   // demo items render via GarmentArt
   };
 }
 
