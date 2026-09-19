@@ -8,28 +8,11 @@ export const MAX_GRAPH_ITEMS = 40;
 
 type GarmentWithId = Garment & { id: string };
 
-/** Build a set of compatible id-pair keys (sorted, joined with '|'). */
-function buildEdgeSet<T extends GarmentWithId>(items: T[]): Set<string> {
-  const edges = new Set<string>();
-  for (let i = 0; i < items.length; i++) {
-    for (let j = i + 1; j < items.length; j++) {
-      if (areCompatible(items[i], items[j])) {
-        edges.add([items[i].id, items[j].id].sort().join('|'));
-      }
-    }
-  }
-  return edges;
-}
-
 function edgeKey(a: string, b: string): string {
   return [a, b].sort().join('|');
 }
 
-/**
- * Returns every compatible pair as a `[idA, idB]` tuple, each pair emitted
- * once (the pair with lexicographically smaller id first is NOT guaranteed —
- * the test only requires uniqueness, not ordering).
- */
+/** Returns every compatible pair as an `[idA, idB]` tuple, each pair emitted once. */
 export function buildEdges<T extends GarmentWithId>(items: T[]): Array<[string, string]> {
   const result: Array<[string, string]> = [];
   for (let i = 0; i < items.length; i++) {
@@ -40,6 +23,10 @@ export function buildEdges<T extends GarmentWithId>(items: T[]): Array<[string, 
     }
   }
   return result;
+}
+
+function buildEdgeSet<T extends GarmentWithId>(items: T[]): Set<string> {
+  return new Set(buildEdges(items).map(([a, b]) => edgeKey(a, b)));
 }
 
 /**
