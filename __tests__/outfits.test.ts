@@ -90,5 +90,8 @@ describe('graph cap', () => {
     const many = Array.from({ length: MAX_GRAPH_ITEMS + 25 }, (_, i) =>
       it_(`x${i}`, { category: (['top', 'bottom', 'footwear'] as const)[i % 3] }));
     expect(() => countOutfits(many)).not.toThrow();
+    // The cap must actually bite: items beyond it contribute nothing. Without
+    // the slice this count would be far larger than the capped one.
+    expect(countOutfits(many)).toBe(countOutfits(many.slice(0, MAX_GRAPH_ITEMS)));
   });
 });
