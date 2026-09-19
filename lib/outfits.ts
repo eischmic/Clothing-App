@@ -6,7 +6,7 @@ import type { Garment } from '@/lib/types';
 
 export const MAX_GRAPH_ITEMS = 40;
 
-type GarmentWithId = Garment & { id: string };
+export type GarmentWithId = Garment & { id: string };
 
 function edgeKey(a: string, b: string): string {
   return [a, b].sort().join('|');
@@ -104,17 +104,18 @@ export function enumerateOutfits<T extends GarmentWithId>(items: T[]): T[][] {
  * Count valid outfits. Implemented via `enumerateOutfits` so the two can
  * never disagree.
  */
-export function countOutfits<T extends GarmentWithId>(items: T[]): number {
+export function countOutfits(items: GarmentWithId[]): number {
   return enumerateOutfits(items).length;
 }
 
 /**
  * How many additional outfits does adding `candidate` to `wardrobe` unlock?
- * Always non-negative.
+ * Wardrobe and candidate are deliberately not a single generic: callers mix
+ * `WardrobeItem` with a candidate `Product`.
  */
-export function wardrobeImpact<T extends GarmentWithId>(
-  wardrobe: T[],
-  candidate: T,
+export function wardrobeImpact(
+  wardrobe: GarmentWithId[],
+  candidate: GarmentWithId,
 ): number {
   return Math.max(0, countOutfits([...wardrobe, candidate]) - countOutfits(wardrobe));
 }
