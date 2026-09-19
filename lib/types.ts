@@ -77,15 +77,21 @@ export interface InspoImage {
   uploadedAt: string;
 }
 
+/** Raw structured output returned by the Claude vision model for an inspiration image. */
 export interface ImageAttributes {
-  styleVector: StyleVector;
-  dominantColors: string[];
-  vibes: VibeName[];
+  style: string[];
+  colors: string[];
+  fit: string[];
+  patterns: string[];
+  materials: string[];
+  items: { category: Category; color: string; style: string }[];
 }
 
 export interface StyleProfile {
   vector: StyleVector;
   vibes: VibeName[];
+  vibe: VibeName;
+  tags: string[];
   dominantColors: string[];
   questionnaire: Questionnaire | null;
   createdAt: string;

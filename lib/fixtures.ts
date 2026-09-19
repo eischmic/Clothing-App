@@ -10,15 +10,6 @@ import type {
 } from '@/lib/types';
 import { COLOR_TO_FAMILY } from '@/lib/types';
 
-// ---- Extended demo profile type ----
-
-export interface DemoStyleProfile extends StyleProfile {
-  /** Three headline style tags shown on the Home screen. */
-  tags: string[];
-  /** Resolved vibe derived from dominantColors. */
-  vibe: VibeName;
-}
-
 // ---- DEMO_PROFILE ----
 
 const DEMO_COLORS = ['olive', 'khaki', 'black', 'cream'];
@@ -35,7 +26,7 @@ const DEMO_VECTOR: StyleVector = {
   relaxedFit:    0.80,
 };
 
-export const DEMO_PROFILE: DemoStyleProfile = {
+export const DEMO_PROFILE: StyleProfile = {
   vector:         DEMO_VECTOR,
   vibes:          ['sage', 'sand', 'noir'],
   vibe:           deriveVibe(DEMO_COLORS),  // → 'sage' (olive wins)

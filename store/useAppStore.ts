@@ -14,7 +14,7 @@ import type {
 } from '@/lib/types';
 import { SLIDER_KEYS } from '@/lib/types';
 import { DEMO_PROFILE, DEMO_WARDROBE } from '@/lib/fixtures';
-import type { DemoStyleProfile } from '@/lib/fixtures';
+import type { StyleProfile } from '@/lib/types';
 
 // ---- State ----
 
@@ -28,7 +28,7 @@ export interface AppState {
   questionnaire:    Questionnaire;
   inspoImages:      InspoImage[];
   wardrobeItems:    WardrobeItem[];
-  styleProfile:     DemoStyleProfile | null;
+  styleProfile:     StyleProfile | null;
   savedProductIds:  string[];
   themeMode:        ThemeMode;
   hydrated:         boolean;
@@ -43,7 +43,7 @@ export interface AppActions {
   removeInspoImage:  (id: string) => void;
   addWardrobeItems:  (items: WardrobeItem[]) => void;
   removeWardrobeItem:(id: string) => void;
-  setStyleProfile:   (profile: DemoStyleProfile) => void;
+  setStyleProfile:   (profile: StyleProfile) => void;
   toggleSaved:       (productId: string) => void;
   setThemeMode:      (mode: ThemeMode) => void;
   resetOnboarding:   () => void;
