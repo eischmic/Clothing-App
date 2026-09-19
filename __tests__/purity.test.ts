@@ -11,7 +11,7 @@ function walk(dir: string): string[] {
 describe('lib purity', () => {
   it('never imports React, React Native, or Expo', () => {
     const offenders = walk('lib').filter((file) =>
-      /from\s+['"](react|react-native|expo[-/]?[^'"]*)['"]/.test(readFileSync(file, 'utf8')),
+      /(from\s+['"]|import\s+['"])(react|react-native|expo[-/]?[^'"]*)['"]/.test(readFileSync(file, 'utf8')),
     );
     expect(offenders).toEqual([]);
   });

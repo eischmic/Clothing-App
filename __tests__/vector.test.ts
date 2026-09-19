@@ -97,6 +97,71 @@ describe('questionnaireToVector', () => {
     expect(min.minimalism).toBeGreaterThan(plain.minimalism);
     expect(min.pattern).toBeLessThan(plain.pattern);
   });
+
+  // --- formula-pinning tests (one per affected dimension) ---
+
+  it('pattern = 0.2 + 0.6 * minimalExpressive', () => {
+    // At 0.75: 0.2 + 0.6*0.75 = 0.65
+    const v = questionnaireToVector(q({ minimalExpressive: 0.75, neutralColorful: 0 }));
+    expect(v.pattern).toBeCloseTo(0.65, 6);
+  });
+
+  it('pattern floor is 0.2 when minimalExpressive is 0', () => {
+    const v = questionnaireToVector(q({ minimalExpressive: 0, neutralColorful: 0 }));
+    expect(v.pattern).toBeCloseTo(0.2, 6);
+  });
+
+  it('streetwear = 0.5 * classicTrendy + 0.5 * practicalFashion', () => {
+    // classicTrendy=0.6, practicalFashion=0.4 → 0.5*0.6 + 0.5*0.4 = 0.5
+    const v = questionnaireToVector(q({ classicTrendy: 0.6, practicalFashion: 0.4 }));
+    expect(v.streetwear).toBeCloseTo(0.5, 6);
+  });
+
+  it('streetwear includes the practicalFashion term (nonzero when classicTrendy=0)', () => {
+    // If practicalFashion term were missing, streetwear would be 0 here.
+    const v = questionnaireToVector(q({ classicTrendy: 0, practicalFashion: 0.8 }));
+    expect(v.streetwear).toBeCloseTo(0.4, 6);
+  });
+
+  it('vintage = 0.7 * (1 - classicTrendy)', () => {
+    // At classicTrendy=0.4: 0.7*(1-0.4) = 0.42
+    const v = questionnaireToVector(q({ classicTrendy: 0.4 }));
+    expect(v.vintage).toBeCloseTo(0.42, 6);
+  });
+
+  it('vintage is 0 when classicTrendy is 1 (not 1 - 1 = 0 without the factor)', () => {
+    const v = questionnaireToVector(q({ classicTrendy: 1 }));
+    expect(v.vintage).toBeCloseTo(0, 6);
+  });
+
+  it('colorfulness = neutralColorful alone (not blended with minimalExpressive)', () => {
+    // minimalExpressive=1 should not inflate colorfulness; neutralColorful=0.3 → 0.3
+    const v = questionnaireToVector(q({ minimalExpressive: 1, neutralColorful: 0.3 }));
+    expect(v.colorfulness).toBeCloseTo(0.3, 6);
+  });
+
+  it('colorfulness is 0 when neutralColorful=0 regardless of minimalExpressive', () => {
+    const v = questionnaireToVector(q({ minimalExpressive: 1, neutralColorful: 0 }));
+    expect(v.colorfulness).toBeCloseTo(0, 6);
+  });
+
+  it('minimalism = 1 - minimalExpressive', () => {
+    const v = questionnaireToVector(q({ minimalExpressive: 0.3, neutralColorful: 0 }));
+    expect(v.minimalism).toBeCloseTo(0.7, 6);
+  });
+
+  it('formal = 1 - formalCasual, relaxedFit = formalCasual', () => {
+    const v = questionnaireToVector(q({ formalCasual: 0.4 }));
+    expect(v.formal).toBeCloseTo(0.6, 6);
+    expect(v.relaxedFit).toBeCloseTo(0.4, 6);
+  });
+
+  it('workwear = 0.6 * (1 - practicalFashion), outdoor = 0.5 * (1 - practicalFashion)', () => {
+    // practicalFashion=0.25 → workwear=0.6*0.75=0.45, outdoor=0.5*0.75=0.375
+    const v = questionnaireToVector(q({ practicalFashion: 0.25 }));
+    expect(v.workwear).toBeCloseTo(0.45, 6);
+    expect(v.outdoor).toBeCloseTo(0.375, 6);
+  });
 });
 
 describe('composeStyleVector', () => {

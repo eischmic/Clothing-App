@@ -82,22 +82,26 @@ export function blendVectors(
 // ---------------------------------------------------------------------------
 
 /**
- * Slider mappings.
+ * Slider mappings (spec §4 "Slider → vector", v(x) = slider value in 0..1).
  *
  * minimalExpressive: 0 = minimal, 1 = expressive
- *   → minimalism = 1 - value, pattern += value * 0.5, colorfulness = value
+ *   → minimalism = 1 - v(minimalExpressive)
+ *   → pattern    = 0.2 + 0.6 · v(minimalExpressive)
  *
  * classicTrendy: 0 = classic, 1 = trendy
- *   → vintage = 1 - value, streetwear = value * 0.7
+ *   → vintage    = 0.7 · (1 - v(classicTrendy))
+ *   → streetwear = 0.5 · v(classicTrendy) + 0.5 · v(practicalFashion)
  *
  * formalCasual: 0 = formal, 1 = casual
- *   → formal = 1 - value, relaxedFit = value, workwear += (1 - value) * 0.3
+ *   → formal     = 1 - v(formalCasual)
+ *   → relaxedFit = v(formalCasual)
  *
  * practicalFashion: 0 = practical, 1 = fashion
- *   → workwear = (1 - value) * 0.6, outdoor = (1 - value) * 0.5
+ *   → workwear   = 0.6 · (1 - v(practicalFashion))
+ *   → outdoor    = 0.5 · (1 - v(practicalFashion))
  *
  * neutralColorful: 0 = neutral, 1 = colorful
- *   → colorfulness = value
+ *   → colorfulness = v(neutralColorful)
  */
 export function questionnaireToVector(q: Questionnaire): StyleVector {
   const s = q.sliders;
@@ -105,12 +109,11 @@ export function questionnaireToVector(q: Questionnaire): StyleVector {
 
   // minimalExpressive
   v.minimalism = 1 - s.minimalExpressive;
-  v.pattern    = s.minimalExpressive * 0.5;
-  v.colorfulness = s.minimalExpressive;
+  v.pattern    = 0.2 + 0.6 * s.minimalExpressive;
 
-  // classicTrendy
-  v.vintage    = 1 - s.classicTrendy;
-  v.streetwear = s.classicTrendy * 0.7;
+  // classicTrendy + practicalFashion
+  v.vintage    = 0.7 * (1 - s.classicTrendy);
+  v.streetwear = 0.5 * s.classicTrendy + 0.5 * s.practicalFashion;
 
   // formalCasual
   v.formal     = 1 - s.formalCasual;
@@ -120,9 +123,8 @@ export function questionnaireToVector(q: Questionnaire): StyleVector {
   v.workwear = (1 - s.practicalFashion) * 0.6;
   v.outdoor  = (1 - s.practicalFashion) * 0.5;
 
-  // neutralColorful — blends with minimalExpressive contribution
-  // Take the max of the two colorfulness signals so both sliders have effect.
-  v.colorfulness = Math.max(v.colorfulness, s.neutralColorful);
+  // neutralColorful
+  v.colorfulness = s.neutralColorful;
 
   // Apply word boosts
   for (const word of q.words) {
@@ -220,7 +222,7 @@ function singleAttributesToVector(attrs: ImageAttributes): StyleVector {
   // Average contributions that have hits; leave zeros for dimensions with no signal
   for (const d of STYLE_DIMENSIONS) {
     const n = hits[d];
-    if (n && n > 1) {
+    if (n && n >= 1) {
       v[d] = v[d] / n;
     }
   }
