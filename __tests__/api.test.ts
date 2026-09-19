@@ -1,0 +1,2 @@
+import { analyzeInspiration, analyzeWardrobe } from '@/lib/api';
+describe('resilient API client', () => { afterEach(() => jest.restoreAllMocks()); it('degrades on a network failure', async () => { jest.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline')); expect((await analyzeInspiration(['data:image/png;base64,x'])).degraded).toBe(true); }); it('degrades malformed payloads', async () => { jest.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ no: 'items' })); expect((await analyzeWardrobe(['data:image/png;base64,x'])).degraded).toBe(true); }); });
