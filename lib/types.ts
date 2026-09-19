@@ -31,6 +31,7 @@ export interface Garment {
 }
 
 export const SCORE_WEIGHTS = { style: 0.5, wardrobe: 0.2, price: 0.15, occasion: 0.15 } as const;
+export type ScoreComponent = keyof typeof SCORE_WEIGHTS;
 export const IMAGE_WEIGHT = 0.6;
 export const QUESTIONNAIRE_WEIGHT = 0.4;
 
@@ -93,6 +94,9 @@ export interface StyleProfile {
   vibe: VibeName;
   tags: string[];
   dominantColors: string[];
+  silhouettes: string[];
+  materials: string[];
+  influences: string[];
   questionnaire: Questionnaire | null;
   createdAt: string;
   updatedAt: string;
@@ -106,7 +110,9 @@ export interface WardrobeItem {
   colorFamily: ColorFamily;
   formality: Formality;
   seasons: Season[];
-  imageUri: string;
+  vector: StyleVector;
+  /** `null` → render procedural `GarmentArt` instead of a photo. */
+  imageUri: string | null;
   createdAt: string;
 }
 
@@ -117,17 +123,25 @@ export interface Product {
   name: string;
   brand: string;
   price: number;
-  imageUri: string;
+  /** `null` → render procedural `GarmentArt` instead of a photo. */
+  imageUri: string | null;
+  description: string;
   category: Category;
   color: string;
   colorFamily: ColorFamily;
   formality: Formality;
   seasons: Season[];
-  affiliateUrl: string;
+  vector: StyleVector;
+  url: string;
 }
 
 export interface Recommendation {
   product: Product;
-  score: number;
+  scores: Record<ScoreComponent, number>;
+  /** Weighted total in `[0,1]`. */
+  total: number;
+  pairsWith: WardrobeItem[];
+  similarInspo: InspoImage[];
+  newOutfits: number;
   reasons: string[];
 }

@@ -2,11 +2,11 @@
 // Hard constraint: zero React / React Native / Expo imports. Pure TypeScript + lib/.
 
 import { deriveVibe } from '@/lib/vibe';
+import { garmentToVector } from '@/lib/vector';
 import type {
   StyleProfile,
   StyleVector,
   WardrobeItem,
-  VibeName,
 } from '@/lib/types';
 import { COLOR_TO_FAMILY } from '@/lib/types';
 
@@ -32,6 +32,9 @@ export const DEMO_PROFILE: StyleProfile = {
   vibe:           deriveVibe(DEMO_COLORS),  // → 'sage' (olive wins)
   tags:           ['Relaxed', 'Minimal', 'Outdoorsy'],
   dominantColors: DEMO_COLORS,
+  silhouettes:    ['Oversized tops', 'Wide-leg trousers', 'Boxy outerwear'],
+  materials:      ['Linen', 'Waxed cotton', 'Merino wool'],
+  influences:     ['Japanese workwear', 'Scandinavian minimalism', 'Utility outdoor'],
   questionnaire:  null,
   createdAt:      '2026-09-01T00:00:00.000Z',
   updatedAt:      '2026-09-01T00:00:00.000Z',
@@ -49,15 +52,17 @@ function item(
   formality: WardrobeItem['formality'],
   seasons: WardrobeItem['seasons'],
 ): WardrobeItem {
+  const colorFamily = COLOR_TO_FAMILY[color] as WardrobeItem['colorFamily'];
   return {
     id,
     name,
     category,
     color,
-    colorFamily: COLOR_TO_FAMILY[color] as WardrobeItem['colorFamily'],
+    colorFamily,
     formality,
     seasons,
-    imageUri: '',   // null-equivalent for demo; Tasks 12+ replace with real URIs
+    vector: garmentToVector({ category, colorFamily, formality }),
+    imageUri: null,   // demo items render via GarmentArt
     createdAt: '2026-09-01T00:00:00.000Z',
   };
 }
