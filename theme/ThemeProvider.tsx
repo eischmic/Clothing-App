@@ -25,6 +25,10 @@ export const ThemeContext = createContext<ThemeValue | null>(null);
 
 interface ThemeProviderProps {
   profileVibe: VibeName | null;
+  /** Current theme mode — store owns the source of truth. */
+  mode: 'auto' | VibeName;
+  /** Called when the user changes the mode via setMode(). */
+  onModeChange: (m: 'auto' | VibeName) => void;
   children: React.ReactNode;
 }
 
@@ -33,8 +37,7 @@ function resolveVibe(mode: 'auto' | VibeName, profileVibe: VibeName | null): Vib
   return mode;
 }
 
-export function ThemeProvider({ profileVibe, children }: ThemeProviderProps) {
-  const [mode, setModeState] = useState<'auto' | VibeName>('auto');
+export function ThemeProvider({ profileVibe, mode, onModeChange, children }: ThemeProviderProps) {
   const vibe = resolveVibe(mode, profileVibe);
 
   const accentProgress = useSharedValue(1);
@@ -59,8 +62,8 @@ export function ThemeProvider({ profileVibe, children }: ThemeProviderProps) {
   }, [vibe, accentProgress]);
 
   const setMode = useCallback((m: 'auto' | VibeName) => {
-    setModeState(m);
-  }, []);
+    onModeChange(m);
+  }, [onModeChange]);
 
   const value: ThemeValue = useMemo(() => ({
     base: BASE,
