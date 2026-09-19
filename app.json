@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "FitLab",
+    "slug": "fitlab",
+    "version": "1.0.0",
+    "scheme": "fitlab",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "backgroundColor": "#0A0A0B",
+    "splash": { "resizeMode": "contain", "backgroundColor": "#0A0A0B" },
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.fitlab.app" },
+    "android": {
+      "package": "com.fitlab.app",
+      "adaptiveIcon": { "backgroundColor": "#0A0A0B" }
+    },
+    "web": { "bundler": "metro", "output": "server", "favicon": "./assets/favicon.png" },
+    "plugins": [
+      "expo-router",
+      ["expo-image-picker", {
+        "photosPermission": "FitLab uses your photos to learn your style."
+      }]
+    ],
+    "experiments": { "typedRoutes": true }
+  }
+}
