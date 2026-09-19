@@ -7,25 +7,10 @@ import type { Garment, Category, ColorFamily } from '@/lib/types';
 // Slot rules
 // ---------------------------------------------------------------------------
 
-/**
- * Categories that may not appear twice in the same outfit.
- * `accessory` is intentionally omitted — two accessories may coexist.
- * `outerwear` + `knitwear` is a permitted layering combination, handled below.
- */
-const LAYERABLE_PAIRS = new Set<string>(['knitwear|outerwear']);
-
-function slotKey(a: Category, b: Category): string {
-  return [a, b].sort().join('|');
-}
-
+/** `accessory` is exempt — two accessories may coexist in one outfit. */
 function sameSlotViolation(a: Category, b: Category): boolean {
   if (a === 'accessory' || b === 'accessory') return false;
-  if (a !== b) {
-    // Different categories — only reject if it's NOT a known layerable pair
-    return false;
-  }
-  // Same category — always a violation (accessories already excluded above)
-  return true;
+  return a === b;
 }
 
 // ---------------------------------------------------------------------------
