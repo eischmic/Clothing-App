@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SharedValue, useSharedValue, withTiming, Easing } from 'react-native-reanimated';
 import type { VibeName } from '@/lib/types';
 import {
@@ -37,7 +37,6 @@ export function ThemeProvider({ profileVibe, children }: ThemeProviderProps) {
   const [mode, setModeState] = useState<'auto' | VibeName>('auto');
   const vibe = resolveVibe(mode, profileVibe);
 
-  const [prevVibe, setPrevVibe] = useState<VibeName>(vibe);
   const accentProgress = useSharedValue(1);
 
   // Track previous vibe separately so we can expose prevAccent
@@ -63,7 +62,7 @@ export function ThemeProvider({ profileVibe, children }: ThemeProviderProps) {
     setModeState(m);
   }, []);
 
-  const value: ThemeValue = {
+  const value: ThemeValue = useMemo(() => ({
     base: BASE,
     accent: VIBES[vibe],
     prevAccent: VIBES[prevAccentVibe],
@@ -74,7 +73,7 @@ export function ThemeProvider({ profileVibe, children }: ThemeProviderProps) {
     spacing: SPACING,
     radii: RADII,
     type: TYPE,
-  };
+  }), [vibe, mode, prevAccentVibe, setMode, accentProgress]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
