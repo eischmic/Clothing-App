@@ -37,11 +37,6 @@ function expandCatalogue(): Product[] {
   const products: Product[] = [];
 
   for (const arch of ARCHETYPES) {
-    const baseVector = garmentToVector({
-      category: arch.category,
-      colorFamily: COLOR_TO_FAMILY[arch.colors[0]], // representative colour; refined per-product
-      formality: arch.formality,
-    });
 
     for (const color of arch.colors) {
       const colorFamily = COLOR_TO_FAMILY[color];

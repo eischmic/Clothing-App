@@ -64,6 +64,13 @@ describe('seeded catalogue', () => {
     expect(found.every((p) => /trench/i.test(`${p.name} ${p.brand} ${p.description}`))).toBe(true);
   });
 
+  it('excludes products below a price floor', async () => {
+    const found = await seededProvider.search({ minPrice: 200 });
+    expect(found.length).toBeGreaterThan(0);
+    expect(found.length).toBeLessThan(ALL_PRODUCTS.length);
+    expect(found.every((p) => p.price >= 200)).toBe(true);
+  });
+
   it('returns everything for an empty query', async () => {
     expect(await seededProvider.search({})).toHaveLength(ALL_PRODUCTS.length);
   });
