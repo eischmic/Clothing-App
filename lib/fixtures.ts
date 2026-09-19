@@ -21,7 +21,7 @@ export interface DemoStyleProfile extends StyleProfile {
 
 // ---- DEMO_PROFILE ----
 
-const DEMO_COLORS = ['olive', 'black', 'cream', 'brown'];
+const DEMO_COLORS = ['olive', 'khaki', 'black', 'cream'];
 
 const DEMO_VECTOR: StyleVector = {
   minimalism:    0.75,
