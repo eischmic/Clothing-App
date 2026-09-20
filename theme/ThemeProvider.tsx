@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AccessibilityInfo } from 'react-native';
 import { SharedValue, useSharedValue, withTiming, Easing } from 'react-native-reanimated';
 import type { VibeName } from '@/lib/types';
 import {
@@ -18,6 +19,7 @@ export interface ThemeValue {
   spacing: typeof SPACING;
   radii: typeof RADII;
   type: typeof TYPE;
+  reduceMotion: boolean;
 }
 
 // null sentinel means "not yet provided"
@@ -45,6 +47,13 @@ export function ThemeProvider({ profileVibe, mode, onModeChange, children }: The
   // Track previous vibe separately so we can expose prevAccent
   const prevVibeRef = useRef<VibeName>(vibe);
   const [prevAccentVibe, setPrevAccentVibe] = useState<VibeName>(vibe);
+  const [reduceMotion, setReduceMotion] = useState(false);
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (vibe !== prevVibeRef.current) {
@@ -55,7 +64,7 @@ export function ThemeProvider({ profileVibe, mode, onModeChange, children }: The
       // Reset progress and animate to 1
       accentProgress.value = 0;
       accentProgress.value = withTiming(1, {
-        duration: DURATION.theme,
+        duration: reduceMotion ? 0 : DURATION.theme,
         easing: Easing.bezier(EASING_BEZIER[0], EASING_BEZIER[1], EASING_BEZIER[2], EASING_BEZIER[3]),
       });
     }
@@ -76,7 +85,8 @@ export function ThemeProvider({ profileVibe, mode, onModeChange, children }: The
     spacing: SPACING,
     radii: RADII,
     type: TYPE,
-  }), [vibe, mode, prevAccentVibe, setMode, accentProgress]);
+    reduceMotion,
+  }), [vibe, mode, prevAccentVibe, setMode, accentProgress, reduceMotion]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
