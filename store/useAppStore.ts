@@ -243,7 +243,22 @@ export const useAppStore = create<AppStore>()(
 
       discardDraft: () => set({ draft: null }),
 
-      setActiveProfile: (id) => set({ activeProfileId: id }),
+      setActiveProfile: (id) =>
+        set((s) => {
+          // A no-op switch must not discard a feed that was correctly fetched
+          // for the already-active profile.
+          if (id === s.activeProfileId) return {};
+          // The feed is ranked by the backend for one specific profile. A stale
+          // 'ready' status would fool the idle-guard effect in ExplorePane into
+          // skipping the fetch, so the user would see the previous profile's
+          // recommendations. Reset to idle so the effect refetches on the next
+          // render. byId is left intact: it is the cross-profile product cache
+          // that backs wishlists and saved outfits, which store only ids.
+          return {
+            activeProfileId: id,
+            catalog: { ...s.catalog, feed: [], status: 'idle' },
+          };
+        }),
 
       renameProfile: (id, name) =>
         set((s) => {
