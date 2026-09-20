@@ -63,14 +63,32 @@ def build(index_dir: str = "index") -> None:
     out["seasons"] = seasons
     out["recommendable"] = np.asarray(recommendable, dtype=bool)
 
+    # Validate everything BEFORE writing either file. The two outputs must agree
+    # with each other, and a run that dies between the two writes would leave a
+    # fresh style.parquet paired with a stale axis_quantiles.npy -- silently
+    # mismatched rather than obviously broken.
+    assert len(ranks) == len(cat), (
+        f"axis scores cover {len(ranks)} rows but the catalog has {len(cat)}"
+    )
     assert len(out) == len(cat), "sidecar row count must match the catalog exactly"
+    assert breakpoints.shape == (len(axes.STYLE_DIMENSIONS), 101), (
+        f"axis_quantiles must be [9, 101], got {breakpoints.shape}"
+    )
+
+    n_ok = int(out["recommendable"].sum())
+    pct_ok = 100 * n_ok / len(out)
+    if pct_ok < 40:
+        raise SystemExit(
+            f"only {pct_ok:.1f}% of rows are recommendable (floor is 40%). "
+            "That means the derivation tables reject most of the catalog -- "
+            "refusing to write a sidecar this thin. Nothing was written."
+        )
 
     out.to_parquet(index_dir / "style.parquet", index=False)
     np.save(index_dir / "axis_quantiles.npy", breakpoints)
 
-    n_ok = int(out["recommendable"].sum())
     print(f"wrote style.parquet ({len(out):,} rows, {n_ok:,} recommendable "
-          f"= {100 * n_ok / len(out):.1f}%)", flush=True)
+          f"= {pct_ok:.1f}%)", flush=True)
     print(f"wrote axis_quantiles.npy {breakpoints.shape}", flush=True)
     print("\ncategory distribution:")
     print(out.loc[out["recommendable"], "category"].value_counts().to_string())

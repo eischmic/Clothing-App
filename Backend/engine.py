@@ -35,6 +35,16 @@ def _normalize(x: np.ndarray) -> np.ndarray:
     return x / np.maximum(np.linalg.norm(x, axis=-1, keepdims=True), 1e-12)
 
 
+def _projected(out):
+    """The projected CLIP embedding, across transformers 4.x and 5.x.
+
+    4.x returned a bare tensor from get_*_features; 5.x returns a
+    BaseModelOutputWithPooling whose `pooler_output` is that same projected
+    vector (verified cosine-identical, 512-d on both the text and image paths).
+    """
+    return out.pooler_output if hasattr(out, "pooler_output") else out
+
+
 def _spherical_kmeans(x: np.ndarray, k: int, seed: int = 0, iters: int = 25) -> np.ndarray:
     rng = np.random.default_rng(seed)
     centers = x[rng.choice(len(x), size=k, replace=False)]
@@ -85,7 +95,7 @@ class StyleEngine:
         inputs = self._processor(images=pil, return_tensors="pt").to(self._device)
         with torch.inference_mode():
             out = self._model.get_image_features(**inputs)
-        feats = out.pooler_output if hasattr(out, "pooler_output") else out
+            feats = _projected(out)
         return _normalize(feats.float().cpu().numpy())
 
     def embed_texts(self, texts) -> np.ndarray:
@@ -95,7 +105,7 @@ class StyleEngine:
                                  truncation=True).to(self._device)
         with torch.inference_mode():
             out = self._model.get_text_features(**inputs)
-        feats = out.pooler_output if hasattr(out, "pooler_output") else out
+            feats = _projected(out)
         return _normalize(feats.float().cpu().numpy())
 
     # --------------------------------------------------------------- profiles
