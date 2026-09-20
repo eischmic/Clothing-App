@@ -251,6 +251,16 @@ def test_catalog_item_lookup_404s_on_unknown_id(client):
     assert client.get("/catalog/0000000000").status_code == 404
 
 
+def test_catalog_item_lookup_404s_on_a_non_recommendable_article(client):
+    # Dresses, underwear, swimwear and homeware are excluded because the outfit
+    # graph has no slot for them. Their ids ARE in the catalog, so the lookup
+    # finds a row -- but that row has no category, and serving it used to
+    # relabel it "top", handing the client a Dress to wear in its top slot.
+    eng = client.app.state.engine
+    excluded = eng.catalog.loc[~eng.catalog["recommendable"], "article_id"].iloc[0]
+    assert client.get(f"/catalog/{excluded}").status_code == 404
+
+
 def test_sessions_endpoints_are_gone(client):
     assert client.post("/sessions/from-photos").status_code == 404
     assert client.get("/sessions/abc").status_code == 404

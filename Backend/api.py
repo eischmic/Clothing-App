@@ -163,6 +163,13 @@ def _buy_url(article_id: str) -> str:
 
 
 def _to_profile_item(row, base_url: str) -> ProfileItem:
+    """Catalog row -> wire Product. Callers must pass a recommendable row.
+
+    Every recommendable row is guaranteed a real category by the sidecar join,
+    so there is deliberately no category fallback here: silently substituting
+    one would turn an excluded garment into a plausible-looking top.
+    """
+    assert bool(row["recommendable"]), f"{row['article_id']} is not recommendable"
     seasons = str(row.get("seasons") or "")
     return ProfileItem(
         article_id=row["article_id"],
@@ -172,7 +179,7 @@ def _to_profile_item(row, base_url: str) -> ProfileItem:
         description=_clean(row.get("detail_desc")),
         image_url=f"{base_url}thumbs/{row['image_rel']}",
         buy_url=_buy_url(row["article_id"]),
-        category=str(row.get("category") or "top"),
+        category=str(row["category"]),
         colour_family=str(row.get("colour_family") or "neutral"),
         formality=int(row.get("formality") or 3),
         seasons=[s for s in seasons.split(",") if s],
@@ -230,7 +237,15 @@ def catalog_item(article_id: str, request: Request):
     r = eng.id_to_row.get(article_id)
     if r is None:
         raise HTTPException(status_code=404, detail="Unknown article_id")
-    return _to_profile_item(eng.catalog.iloc[r], str(request.base_url))
+    row = eng.catalog.iloc[r]
+    # Non-recommendable rows carry no category -- they are the dresses,
+    # underwear, swimwear and homeware the outfit graph has no slot for. They
+    # can never come out of /next, so the only way to ask for one is to guess an
+    # id. 404 rather than serve it: the fallback below used to relabel them
+    # "top", which handed the client a Dress to put in its top slot.
+    if not bool(row["recommendable"]):
+        raise HTTPException(status_code=404, detail="Article is not recommendable")
+    return _to_profile_item(row, str(request.base_url))
 
 
 # ----------------------------------------------------- /profiles endpoints
