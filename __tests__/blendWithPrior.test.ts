@@ -78,4 +78,19 @@ describe('blendWithPrior', () => {
     const b = blendWithPrior(CLIP, QUESTIONNAIRE, 2, 6);
     for (const d of STYLE_DIMENSIONS) expect(a[d]).toBeCloseTo(b[d], 6);
   });
+
+  it('clamps an out-of-range clip vector into [0, 1]', () => {
+    // `clip` comes off the network. An axis outside [0, 1] would otherwise
+    // flow straight into cosine scoring and skew every recommendation.
+    const out = blendWithPrior(filled(9), filled(-4), 10, 0);
+    for (const d of STYLE_DIMENSIONS) {
+      expect(out[d]).toBeGreaterThanOrEqual(0);
+      expect(out[d]).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('clamps on the no-evidence path too', () => {
+    const out = blendWithPrior(CLIP, filled(-1), 0, 0);
+    for (const d of STYLE_DIMENSIONS) expect(out[d]).toBe(0);
+  });
 });

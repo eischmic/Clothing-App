@@ -109,11 +109,18 @@ export function blendWithPrior(
   nSwipes: number,
 ): StyleVector {
   const w = evidenceWeight(nRefs, nSwipes);
-  if (w <= 0) return { ...questionnaire };
-  return blendVectors([
-    { vector: clip, weight: w },
-    { vector: questionnaire, weight: 1 - w },
-  ]);
+  // clampVector on the way out, like every other vector producer in this file.
+  // The blend of two in-range vectors is already in range -- `w` and `1 - w`
+  // are non-negative and sum to exactly 1 -- so this is a no-op on good input.
+  // It earns its place on bad input: `clip` arrives from the network, and an
+  // out-of-range axis would otherwise propagate into cosine scoring unchecked.
+  if (w <= 0) return clampVector(questionnaire);
+  return clampVector(
+    blendVectors([
+      { vector: clip, weight: w },
+      { vector: questionnaire, weight: 1 - w },
+    ]),
+  );
 }
 
 // ---------------------------------------------------------------------------
