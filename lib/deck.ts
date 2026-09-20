@@ -2,7 +2,7 @@
 
 import type { Product, StyleVector } from '@/lib/types';
 import { areCompatible } from '@/lib/compatibility';
-import { priceScore, styleScore } from '@/lib/scoring';
+import { styleScore } from '@/lib/scoring';
 
 export type Slot = 'top' | 'bottom' | 'footwear' | 'outerwear' | 'knitwear';
 
@@ -26,7 +26,6 @@ export interface DeckContext {
   products: Product[];
   userVector: StyleVector;
   rejectedIds: string[];
-  budgetCenter: number;
 }
 
 export function outfitProducts(outfit: DeckOutfit): Product[] {
@@ -36,12 +35,8 @@ export function outfitProducts(outfit: DeckOutfit): Product[] {
   });
 }
 
-export function outfitTotal(outfit: DeckOutfit): number {
-  return outfitProducts(outfit).reduce((sum, p) => sum + p.price, 0);
-}
-
 function rank(ctx: DeckContext, p: Product): number {
-  return styleScore(ctx.userVector, p) + 0.2 * priceScore(p.price, ctx.budgetCenter);
+  return styleScore(ctx.userVector, p);
 }
 
 export function candidatesForSlot(ctx: DeckContext, slot: Slot): Product[] {

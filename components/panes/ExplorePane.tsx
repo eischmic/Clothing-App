@@ -11,7 +11,6 @@ import {
   DECK_SLOT_ORDER,
   buildOutfit,
   outfitProducts,
-  outfitTotal,
   refillSlot,
   type DeckContext,
   type DeckOutfit,
@@ -21,7 +20,6 @@ import { EmptyState, PrimaryButton } from '@/components/primitives';
 import { GarmentSwipeCard } from '@/components/GarmentSwipeCard';
 import { StylePill } from '@/components/StylePill';
 
-const BUDGET_CENTER = 120;
 const MIN_ROW = 96;
 const MAX_ROW = 140;
 /** Dropped from display first when the rows cannot all fit. */
@@ -50,7 +48,6 @@ export function ExplorePane({ onNavigateToPane }: { onNavigateToPane?: (index: n
             products: ALL_PRODUCTS,
             userVector: profile.vector,
             rejectedIds,
-            budgetCenter: BUDGET_CENTER,
           }
         : null,
     [profile, rejectedIds],
@@ -157,9 +154,6 @@ export function ExplorePane({ onNavigateToPane }: { onNavigateToPane?: (index: n
               padding: spacing.md,
             }}
           >
-            <Text style={[type.title, { color: accent.bright, flex: 1 }]}>
-              ${outfitTotal(outfit)}
-            </Text>
             <PrimaryButton
               label={justSaved ? 'Saved' : 'Save outfit'}
               onPress={save}

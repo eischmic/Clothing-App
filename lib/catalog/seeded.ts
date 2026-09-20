@@ -9,28 +9,6 @@ import type { Product, StyleVector, StyleDimension } from '@/lib/types';
 import { COLOR_TO_FAMILY, STYLE_DIMENSIONS } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
-// Deterministic price offset: derived from archetype id and colour string.
-// Uses a simple character-code sum to stay fully deterministic.
-// ---------------------------------------------------------------------------
-function deterministicOffset(archetypeId: string, color: string): number {
-  let hash = 0;
-  const str = `${archetypeId}:${color}`;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash * 31 + str.charCodeAt(i)) & 0xffff;
-  }
-  // Offset in range [-15, +20] — spreads prices slightly without large swings.
-  return (hash % 36) - 15;
-}
-
-/** Spec §9 fixes the catalogue's price band at $35–$320. */
-export const MIN_PRICE = 35;
-export const MAX_PRICE = 320;
-
-function clampPrice(price: number): number {
-  return Math.min(MAX_PRICE, Math.max(MIN_PRICE, price));
-}
-
-// ---------------------------------------------------------------------------
 // Expand archetypes × colors into Product[]
 // ---------------------------------------------------------------------------
 function expandCatalogue(): Product[] {
@@ -62,9 +40,6 @@ function expandCatalogue(): Product[] {
       }
       const vector = clampVector(rawVector);
 
-      const priceOffset = deterministicOffset(arch.id, color);
-      const price = clampPrice(arch.basePrice + priceOffset);
-
       const id = `${arch.id}-${color}`;
       const name = `${arch.baseName} in ${color.charAt(0).toUpperCase() + color.slice(1)}`;
 
@@ -72,7 +47,6 @@ function expandCatalogue(): Product[] {
         id,
         name,
         brand: arch.brand,
-        price,
         imageUri: null,
         description: arch.description,
         category: arch.category,
@@ -104,14 +78,6 @@ export const seededProvider: ProductProvider = {
 
     if (query.category !== undefined) {
       results = results.filter((p) => p.category === query.category);
-    }
-
-    if (query.minPrice !== undefined) {
-      results = results.filter((p) => p.price >= query.minPrice!);
-    }
-
-    if (query.maxPrice !== undefined) {
-      results = results.filter((p) => p.price <= query.maxPrice!);
     }
 
     if (query.text !== undefined && query.text.length > 0) {

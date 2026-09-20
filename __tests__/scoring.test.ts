@@ -1,11 +1,11 @@
-import { styleScore, wardrobeScore, priceScore, occasionScore, rankProducts, INTENTS } from '@/lib/scoring';
+import { styleScore, wardrobeScore, occasionScore, rankProducts, INTENTS } from '@/lib/scoring';
 import { zeroVector } from '@/lib/vector';
 import { ALL_PRODUCTS } from '@/lib/catalog/seeded';
 import { DEMO_WARDROBE } from '@/lib/fixtures';
 import { SCORE_WEIGHTS, type Product } from '@/lib/types';
 
 const product = (over: Partial<Product> = {}): Product => ({
-  id: 'p1', name: 'Test Jacket', brand: 'Test', category: 'outerwear', price: 120,
+  id: 'p1', name: 'Test Jacket', brand: 'Test', category: 'outerwear',
   url: 'https://example.com', imageUri: null, description: 'a jacket',
   color: 'olive', colorFamily: 'earth', formality: 3,
   seasons: ['fall', 'winter'], vector: { ...zeroVector(), outdoor: 0.8, workwear: 0.6 }, ...over,
@@ -16,12 +16,6 @@ describe('component scores', () => {
     const aligned = { ...zeroVector(), outdoor: 0.8, workwear: 0.6 };
     const opposed = { ...zeroVector(), formal: 1 };
     expect(styleScore(aligned, product())).toBeGreaterThan(styleScore(opposed, product()));
-  });
-
-  it('peaks price score at the budget centre and decays away from it', () => {
-    expect(priceScore(120, 120)).toBeCloseTo(1, 6);
-    expect(priceScore(400, 120)).toBeLessThan(priceScore(150, 120));
-    expect(priceScore(400, 120)).toBeGreaterThanOrEqual(0);
   });
 
   it('scores occasion 1 on an exact formality match and 0 at maximum distance', () => {
@@ -47,10 +41,6 @@ describe('component scores', () => {
     }
   });
 
-  it('returns a finite price score for a degenerate budget centre', () => {
-    expect(priceScore(120, 0)).toBe(0);
-    expect(Number.isFinite(priceScore(120, -50))).toBe(true);
-  });
 });
 
 describe('rankProducts', () => {
@@ -60,7 +50,6 @@ describe('rankProducts', () => {
     inspoImages: [],
     products: ALL_PRODUCTS,
     intentId: 'jacket' as const,
-    budgetCenter: 120,
     limit: 5,
   };
 
@@ -90,7 +79,6 @@ describe('rankProducts', () => {
     const [top] = rankProducts(args);
     const expected = SCORE_WEIGHTS.style * top.scores.style
       + SCORE_WEIGHTS.wardrobe * top.scores.wardrobe
-      + SCORE_WEIGHTS.price * top.scores.price
       + SCORE_WEIGHTS.occasion * top.scores.occasion;
     expect(top.total).toBeCloseTo(expected, 10);
   });

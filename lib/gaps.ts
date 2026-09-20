@@ -4,7 +4,6 @@
 import { scoreProduct } from '@/lib/scoring';
 import { areCompatible } from '@/lib/compatibility';
 import { wardrobeImpact } from '@/lib/outfits';
-import { ALL_PRODUCTS } from '@/lib/catalog/seeded';
 import {
   CATEGORIES,
   COLOR_FAMILIES,
@@ -52,7 +51,6 @@ export interface AnalyzeGapsArgs {
   wardrobe: WardrobeItem[];
   userVector: StyleVector;
   products: Product[];
-  budgetCenter: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +133,7 @@ function attachSuggestion(
   category: Category,
   args: AnalyzeGapsArgs,
 ): { suggestion: Recommendation; newOutfits: number } | null {
-  const { wardrobe, userVector, products, budgetCenter } = args;
+  const { wardrobe, userVector, products } = args;
 
   // Filter the product list to the gap category
   const candidates = products.filter((p) => p.category === category);
@@ -150,7 +148,6 @@ function attachSuggestion(
         inspoImages: [],
         product,
         targetFormality: 2,
-        budgetCenter,
       }),
     )
     .sort((a, b) => {

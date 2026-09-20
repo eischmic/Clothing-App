@@ -57,15 +57,6 @@ export function wardrobeScore(wardrobe: WardrobeItem[], p: Product): number {
   return Math.min(1, count / WARDROBE_SATURATION);
 }
 
-/**
- * Price match: Gaussian centred on the budget centre.
- * Formula: exp(-((price - center) / center)^2 / 0.5)
- */
-export function priceScore(price: number, center: number): number {
-  // A non-positive centre would divide by zero and poison `total` with NaN.
-  if (center <= 0) return 0;
-  return Math.exp(-Math.pow((price - center) / center, 2) / 0.5);
-}
 
 /**
  * Occasion match: 1 - |productFormality - targetFormality| / 4.
@@ -99,10 +90,6 @@ function buildReasons(
     reasons.push(`Unlocks ${newOutfits} new outfit${newOutfits === 1 ? '' : 's'}`);
   }
 
-  if (scores.price > 0.8) {
-    reasons.push('Fits your budget well');
-  }
-
   if (scores.occasion > 0.9) {
     reasons.push('Perfect formality for the occasion');
   }
@@ -126,25 +113,22 @@ export interface ScoreProductArgs {
   inspoImages: InspoImage[];
   product: Product;
   targetFormality: number;
-  budgetCenter: number;
 }
 
 export function scoreProduct(args: ScoreProductArgs): Recommendation {
-  const { userVector, wardrobe, inspoImages, product, targetFormality, budgetCenter } = args;
+  const { userVector, wardrobe, inspoImages, product, targetFormality } = args;
 
   const compatibleItems = wardrobe.filter((item) => areCompatible(item, product));
 
   const scores: Record<ScoreComponent, number> = {
     style:    styleScore(userVector, product),
     wardrobe: Math.min(1, compatibleItems.length / WARDROBE_SATURATION),
-    price:    priceScore(product.price, budgetCenter),
     occasion: occasionScore(product, targetFormality),
   };
 
   const total =
     SCORE_WEIGHTS.style    * scores.style +
     SCORE_WEIGHTS.wardrobe * scores.wardrobe +
-    SCORE_WEIGHTS.price    * scores.price +
     SCORE_WEIGHTS.occasion * scores.occasion;
 
   const pairsWith = compatibleItems.slice(0, WARDROBE_SATURATION);
@@ -178,12 +162,11 @@ export interface RankProductsArgs {
   inspoImages: InspoImage[];
   products: Product[];
   intentId: IntentId;
-  budgetCenter: number;
   limit: number;
 }
 
 export function rankProducts(args: RankProductsArgs): Recommendation[] {
-  const { userVector, wardrobe, inspoImages, products, intentId, budgetCenter, limit } = args;
+  const { userVector, wardrobe, inspoImages, products, intentId, limit } = args;
 
   const intent = INTENTS.find((i) => i.id === intentId);
   if (!intent) throw new Error(`Unknown intentId: ${intentId}`);
@@ -201,7 +184,6 @@ export function rankProducts(args: RankProductsArgs): Recommendation[] {
       inspoImages,
       product,
       targetFormality: intent.targetFormality,
-      budgetCenter,
     }),
   );
 

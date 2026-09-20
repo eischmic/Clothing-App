@@ -30,7 +30,7 @@ describe('enum tables', () => {
 
   it('has score weights summing to exactly 1', () => {
     const sum = SCORE_WEIGHTS.style + SCORE_WEIGHTS.wardrobe
-      + SCORE_WEIGHTS.price + SCORE_WEIGHTS.occasion;
+      + SCORE_WEIGHTS.occasion;
     expect(sum).toBeCloseTo(1, 10);
   });
 

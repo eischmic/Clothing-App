@@ -13,7 +13,6 @@ const product = (over: Partial<Product> & Pick<Product, 'id'>): Product => ({
   name: over.id,
   brand: 'Test',
   category: 'top',
-  price: 100,
   url: 'https://example.com',
   imageUri: null,
   description: 'a garment',
@@ -44,7 +43,6 @@ const ctx = (over: Partial<DeckContext> = {}): DeckContext => ({
   products: CATALOG,
   userVector: { ...zeroVector(), minimalism: 1 },
   rejectedIds: [],
-  budgetCenter: 100,
   ...over,
 });
 

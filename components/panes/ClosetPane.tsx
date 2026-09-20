@@ -56,7 +56,6 @@ export function ClosetPane() {
             wardrobe: wardrobeItems,
             userVector: profile.vector,
             products: ALL_PRODUCTS,
-            budgetCenter: 120,
           })
         : [],
     [profile, wardrobeItems],
@@ -330,7 +329,7 @@ export function ClosetPane() {
                     {product.name}
                   </Text>
                   <Text style={[type.caption, { color: base.textMid }]}>
-                    {product.brand} · ${product.price}
+                    {product.brand}
                   </Text>
                 </View>
                 <Text
@@ -357,7 +356,6 @@ export function ClosetPane() {
               const product = PRODUCT_BY_ID.get(id);
               return product ? [product] : [];
             });
-            const total = pieces.reduce((sum, p) => sum + p.price, 0);
             return (
               <Surface
                 key={saved.id}
@@ -375,7 +373,6 @@ export function ClosetPane() {
                   ))}
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={[type.body, { color: accent.bright, flex: 1 }]}>${total}</Text>
                   <Text
                     onPress={() => removeSavedOutfit(saved.id)}
                     accessibilityRole="button"
