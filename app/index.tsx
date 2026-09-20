@@ -1,77 +1,73 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useWindowDimensions, View } from 'react-native';
-import Animated, {
-  runOnJS,
-  useAnimatedRef,
-  useAnimatedScrollHandler,
-  useSharedValue,
-} from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { SwipeTabBar } from '@/components/SwipeTabBar';
 import { ClosetPane } from '@/components/panes/ClosetPane';
 import { ExplorePane } from '@/components/panes/ExplorePane';
 import { ProfilePane } from '@/components/panes/ProfilePane';
-import { INITIAL_PANE_INDEX, clampIndex } from '@/lib/pager';
+import { INITIAL_PANE_INDEX, PANES, clampIndex } from '@/lib/pager';
 import { useTheme } from '@/theme/useTheme';
+
+const PANE_SPRING = { damping: 22, stiffness: 190, mass: 0.7 } as const;
 
 export default function PagerScreen() {
   const { base, reduceMotion } = useTheme();
   const { width } = useWindowDimensions();
-  const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const scrollX = useSharedValue(0);
-  const lastIndex = useSharedValue(INITIAL_PANE_INDEX);
+  const dragFrom = useSharedValue(INITIAL_PANE_INDEX);
   const [selected, setSelected] = useState(INITIAL_PANE_INDEX);
   const landed = useRef(false);
 
-  const selectIndex = useCallback((index: number) => setSelected(clampIndex(index)), []);
-
-  const onScroll = useAnimatedScrollHandler((event) => {
-    scrollX.value = event.contentOffset.x;
-    const next = width > 0 ? Math.round(event.contentOffset.x / width) : INITIAL_PANE_INDEX;
-    if (next !== lastIndex.value) {
-      lastIndex.value = next;
-      runOnJS(selectIndex)(next);
+  // The ref guard keeps a resize from yanking the user back to the middle pane.
+  useEffect(() => {
+    if (width === 0) return;
+    if (!landed.current) {
+      landed.current = true;
+      scrollX.value = INITIAL_PANE_INDEX * width;
+      return;
     }
-  });
-
-  // contentOffset only honours an initial offset on iOS, so land on Explore
-  // from a one-shot layout pass instead. The ref guard keeps a resize from
-  // yanking the user back to the middle pane.
-  const landOnExplore = useCallback(() => {
-    if (landed.current || width === 0) return;
-    landed.current = true;
-    scrollRef.current?.scrollTo({ x: INITIAL_PANE_INDEX * width, animated: false });
-  }, [scrollRef, width]);
+    scrollX.value = selected * width;
+  }, [scrollX, selected, width]);
 
   const onSelect = useCallback(
     (index: number) => {
-      scrollRef.current?.scrollTo({ x: clampIndex(index) * width, animated: !reduceMotion });
+      const next = clampIndex(index);
+      setSelected(next);
+      scrollX.value = reduceMotion ? next * width : withSpring(next * width, PANE_SPRING);
     },
-    [reduceMotion, scrollRef, width],
+    [reduceMotion, scrollX, width],
   );
+
+  const rowStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: -scrollX.value }],
+  }));
 
   return (
     <View style={{ flex: 1, backgroundColor: base.canvas }}>
-      <Animated.ScrollView
-        ref={scrollRef}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        scrollEventThrottle={16}
-        onScroll={onScroll}
-        onLayout={landOnExplore}
-        style={{ flex: 1 }}
-      >
-        <View style={{ width }}>
-          <ProfilePane />
-        </View>
-        <View style={{ width }}>
-          <ExplorePane />
-        </View>
-        <View style={{ width }}>
-          <ClosetPane />
-        </View>
-      </Animated.ScrollView>
-      <SwipeTabBar scrollX={scrollX} width={width} selected={selected} onSelect={onSelect} />
+      {/* overflow:hidden matters on web — otherwise the off-screen panes extend
+          the document and produce a horizontal scrollbar. */}
+      <View style={{ flex: 1, overflow: 'hidden' }}>
+        <Animated.View
+          style={[{ flex: 1, flexDirection: 'row', width: width * PANES.length }, rowStyle]}
+        >
+          <View style={{ width }}>
+            <ProfilePane />
+          </View>
+          <View style={{ width }}>
+            <ExplorePane onNavigateToPane={onSelect} />
+          </View>
+          <View style={{ width }}>
+            <ClosetPane />
+          </View>
+        </Animated.View>
+      </View>
+      <SwipeTabBar
+        scrollX={scrollX}
+        dragFrom={dragFrom}
+        width={width}
+        selected={selected}
+        onSelect={onSelect}
+      />
     </View>
   );
 }

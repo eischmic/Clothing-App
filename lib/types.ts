@@ -136,6 +136,36 @@ export interface Product {
   url: string;
 }
 
+export interface SavedOutfit {
+  id: string;
+  productIds: string[];
+  createdAt: string;
+}
+
+export interface ProfileRecord {
+  id: string;
+  name: string;
+  profile: StyleProfile;
+  /** Live, editable copy. `StyleProfile.questionnaire` stays the analysis-time snapshot. */
+  questionnaire: Questionnaire;
+  referenceImages: InspoImage[];
+  wardrobeItems: WardrobeItem[];
+  /** Catalog `Product` ids, not wardrobe item ids. */
+  wishlistIds: string[];
+  rejectedIds: string[];
+  savedOutfits: SavedOutfit[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Onboarding answers accumulated before a `ProfileRecord` exists. */
+export interface ProfileDraft {
+  name: string;
+  questionnaire: Questionnaire;
+  referenceImages: InspoImage[];
+  wardrobeItems: WardrobeItem[];
+}
+
 export interface Recommendation {
   product: Product;
   scores: Record<ScoreComponent, number>;

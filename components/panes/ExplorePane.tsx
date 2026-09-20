@@ -1,47 +1,124 @@
-import React, { useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSharedValue } from 'react-native-reanimated';
 import { useTheme } from '@/theme/useTheme';
 import { useAppStore } from '@/store/useAppStore';
+import { selectActiveProfile, selectRejectedIds } from '@/store/selectors';
 import { ALL_PRODUCTS } from '@/lib/catalog/seeded';
-import { INTENTS, type IntentId, rankProducts } from '@/lib/scoring';
-import { Chip, EmptyState, SectionHeader } from '@/components/primitives';
-import { ProductCard } from '@/components/ProductCard';
+import {
+  DECK_SLOT_ORDER,
+  buildOutfit,
+  outfitProducts,
+  outfitTotal,
+  refillSlot,
+  type DeckContext,
+  type DeckOutfit,
+  type Slot,
+} from '@/lib/deck';
+import { EmptyState, PrimaryButton } from '@/components/primitives';
+import { GarmentSwipeCard } from '@/components/GarmentSwipeCard';
+import { StylePill } from '@/components/StylePill';
 
-export function ExplorePane() {
-  const { base, type, spacing } = useTheme();
-  const inspoImages = useAppStore((s) => s.inspoImages);
-  const profile = useAppStore((s) => s.styleProfile);
-  const wardrobe = useAppStore((s) => s.wardrobeItems);
-  const [intentId, setIntentId] = useState<IntentId>('surprise');
-  const [search, setSearch] = useState('');
-  const [maxPrice, setMaxPrice] = useState<number | null>(null);
+const BUDGET_CENTER = 120;
+const MIN_ROW = 96;
+const MAX_ROW = 140;
+/** Dropped from display first when the rows cannot all fit. */
+const DROPPABLE: readonly Slot[] = ['knitwear', 'outerwear'];
+const SAVED_FLASH_MS = 1200;
 
-  const results = useMemo(() => {
-    if (!profile) return [];
-    const candidates = ALL_PRODUCTS.filter(
-      (p) =>
-        (!maxPrice || p.price <= maxPrice) &&
-        `${p.name} ${p.brand} ${p.description}`.toLowerCase().includes(search.toLowerCase()),
-    );
-    return rankProducts({
-      userVector: profile.vector,
-      wardrobe,
-      inspoImages,
-      products: candidates,
-      intentId,
-      budgetCenter: 120,
-      limit: 12,
-    });
-  }, [profile, wardrobe, inspoImages, intentId, search, maxPrice]);
+export function ExplorePane({ onNavigateToPane }: { onNavigateToPane?: (index: number) => void }) {
+  const { base, accent, type, spacing, reduceMotion } = useTheme();
+  const profile = useAppStore(selectActiveProfile);
+  const activeProfileId = useAppStore((s) => s.activeProfileId);
+  const rejectedIds = useAppStore(selectRejectedIds);
+  const toggleWishlist = useAppStore((s) => s.toggleWishlist);
+  const rejectProduct = useAppStore((s) => s.rejectProduct);
+  const clearRejections = useAppStore((s) => s.clearRejections);
+  const saveOutfit = useAppStore((s) => s.saveOutfit);
+
+  const isCommitting = useSharedValue(false);
+  const [deckHeight, setDeckHeight] = useState(0);
+  const [outfit, setOutfit] = useState<DeckOutfit | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
+
+  const ctx = useMemo<DeckContext | null>(
+    () =>
+      profile
+        ? {
+            products: ALL_PRODUCTS,
+            userVector: profile.vector,
+            rejectedIds,
+            budgetCenter: BUDGET_CENTER,
+          }
+        : null,
+    [profile, rejectedIds],
+  );
+
+  // Deliberately keyed on the profile id, not `ctx`: rejecting a product
+  // changes `ctx` and rebuilding there would throw away the rest of the outfit
+  // the user is still judging.
+  const ctxRef = useRef(ctx);
+  ctxRef.current = ctx;
+  useEffect(() => {
+    setOutfit(ctxRef.current ? buildOutfit(ctxRef.current) : null);
+    isCommitting.value = false;
+  }, [activeProfileId, isCommitting]);
+
+  const visibleSlots = useMemo(() => {
+    if (!outfit) return [];
+    let slots = DECK_SLOT_ORDER.filter((s) => outfit.slots[s]);
+    if (deckHeight > 0) {
+      const fits = () => deckHeight / slots.length >= MIN_ROW;
+      for (const droppable of DROPPABLE) {
+        if (fits()) break;
+        slots = slots.filter((s) => s !== droppable);
+      }
+    }
+    return slots;
+  }, [outfit, deckHeight]);
+
+  const rowHeight = visibleSlots.length
+    ? Math.min(MAX_ROW, Math.max(MIN_ROW, deckHeight / visibleSlots.length - spacing.sm))
+    : MIN_ROW;
+
+  const judge = (slot: Slot, direction: 'yes' | 'no') => {
+    if (!ctx || !outfit) return;
+    const product = outfit.slots[slot];
+    if (!product) return;
+    if (direction === 'yes') toggleWishlist(product.id);
+    else rejectProduct(product.id);
+    // A right swipe does not reject, but the slot still refills so the piece
+    // does not immediately reappear.
+    setOutfit(refillSlot({ ...ctx, rejectedIds: [...ctx.rejectedIds, product.id] }, outfit, slot));
+    isCommitting.value = false;
+  };
+
+  const shuffle = () => {
+    if (!ctx) return;
+    setOutfit(buildOutfit(ctx));
+    isCommitting.value = false;
+  };
+
+  const save = () => {
+    if (!outfit) return;
+    saveOutfit(outfitProducts(outfit).map((p) => p.id));
+    setJustSaved(true);
+  };
+
+  useEffect(() => {
+    if (!justSaved) return;
+    const timer = setTimeout(() => setJustSaved(false), SAVED_FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [justSaved]);
 
   if (!profile) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: base.canvas }} edges={['top']}>
         <EmptyState
           title="No style profile yet"
-          body="Finish onboarding so we can rank pieces for you."
+          body="Finish onboarding so we can build outfits for you."
           action="Start onboarding"
           onAction={() => router.replace('/onboarding' as never)}
         />
@@ -51,71 +128,60 @@ export function ExplorePane() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: base.canvas }} edges={['top']}>
-      <ScrollView
-        contentContainerStyle={{ padding: spacing.md, paddingBottom: spacing.xxl }}
-        stickyHeaderIndices={[0]}
-      >
-        <View style={{ backgroundColor: base.canvas, paddingBottom: spacing.sm }}>
-          <Text style={[type.display, { color: base.textHi }]}>Explore</Text>
-          <TextInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search pieces, brands, styles"
-            placeholderTextColor={base.textLow}
-            accessibilityLabel="Search products"
-            style={[
-              type.body,
-              {
-                color: base.textHi,
-                borderColor: base.hairline,
-                borderWidth: 1,
-                borderRadius: 14,
-                padding: spacing.sm,
-                marginTop: spacing.sm,
-              },
-            ]}
-          />
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: spacing.sm, marginTop: spacing.sm }}
+      <StylePill onNavigateToPane={onNavigateToPane} />
+
+      {outfit && visibleSlots.length ? (
+        <>
+          <View
+            onLayout={(e) => setDeckHeight(e.nativeEvent.layout.height)}
+            style={{ flex: 1, paddingHorizontal: spacing.md, gap: spacing.sm }}
           >
-            {INTENTS.map((x) => (
-              <Chip
-                key={x.id}
-                label={x.label}
-                selected={intentId === x.id}
-                onPress={() => setIntentId(x.id)}
+            {visibleSlots.map((slot) => (
+              <GarmentSwipeCard
+                key={outfit.slots[slot]!.id}
+                product={outfit.slots[slot]!}
+                height={rowHeight}
+                isCommitting={isCommitting}
+                reduceMotion={reduceMotion}
+                onSwipe={(direction) => judge(slot, direction)}
+                onPress={() => router.push(`/product/${outfit.slots[slot]!.id}` as never)}
               />
             ))}
-          </ScrollView>
-          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-            <Chip
-              label="Under $100"
-              selected={maxPrice === 100}
-              onPress={() => setMaxPrice(maxPrice === 100 ? null : 100)}
-            />
-            <Chip
-              label="Under $200"
-              selected={maxPrice === 200}
-              onPress={() => setMaxPrice(maxPrice === 200 ? null : 200)}
-            />
-            <Chip label="Any" selected={maxPrice === null} onPress={() => setMaxPrice(null)} />
           </View>
-        </View>
-        <SectionHeader title={`${results.length} recommendations`} />
-        {results.length ? (
-          results.map((rec) => (
-            <ProductCard
-              key={rec.product.id}
-              recommendation={rec}
-              onPress={() => router.push(`/product/${rec.product.id}` as never)}
+
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.sm,
+              padding: spacing.md,
+            }}
+          >
+            <Text style={[type.title, { color: accent.bright, flex: 1 }]}>
+              ${outfitTotal(outfit)}
+            </Text>
+            <PrimaryButton
+              label={justSaved ? 'Saved' : 'Save outfit'}
+              onPress={save}
+              style={{ flex: 1 }}
             />
-          ))
-        ) : (
-          <EmptyState title="No pieces found" body="Try a different intent, search, or price range." />
-        )}
-      </ScrollView>
+            <PrimaryButton label="Shuffle" variant="ghost" onPress={shuffle} style={{ flex: 1 }} />
+          </View>
+        </>
+      ) : (
+        <EmptyState
+          title="You’ve seen everything for this style"
+          body="Bring back the pieces you passed on to keep going."
+          action="Reset passes"
+          onAction={() => {
+            clearRejections();
+            // Rebuild from an explicitly cleared context: `ctx` still carries
+            // this render's rejections.
+            if (ctx) setOutfit(buildOutfit({ ...ctx, rejectedIds: [] }));
+            isCommitting.value = false;
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }

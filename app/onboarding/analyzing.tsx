@@ -9,15 +9,23 @@ import { PrimaryButton } from '@/components/primitives';
 import { buildStyleProfile } from '@/lib/profile';
 import { analyzeInspiration, toDataUri } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
+import { selectQuestionnaire, selectReferenceImages } from '@/store/selectors';
 import { useTheme } from '@/theme/useTheme';
 
 const stages = ['Reading your inspiration', 'Finding your palette', 'Mapping your style'];
 
 export default function Analyzing() {
   const { base, accent, type, spacing, reduceMotion } = useTheme();
-  const questionnaire = useAppStore((s) => s.questionnaire);
-  const images = useAppStore((s) => s.inspoImages);
-  const setProfile = useAppStore((s) => s.setStyleProfile);
+  const commitDraft = useAppStore((s) => s.commitDraft);
+  // Snapshot the draft's answers on mount. `commitDraft` clears the draft, at
+  // which point the selectors fall through to the freshly created profile —
+  // new array identities that would otherwise re-run the analysis and commit
+  // a second profile.
+  const [input] = useState(() => ({
+    questionnaire: selectQuestionnaire(useAppStore.getState()),
+    images: selectReferenceImages(useAppStore.getState()),
+  }));
+  const { questionnaire, images } = input;
   const [stage, setStage] = useState(0);
   const [done, setDone] = useState(false);
   const [degraded, setDegraded] = useState(false);
@@ -48,13 +56,13 @@ export default function Analyzing() {
         questionnaire,
       });
       setLocalProfile(next);
-      setProfile(next);
+      commitDraft(next);
       setDone(true);
     })();
     return () => {
       active = false;
     };
-  }, [images, questionnaire, reduceMotion, setProfile]);
+  }, [images, questionnaire, reduceMotion, commitDraft]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: base.canvas }}>

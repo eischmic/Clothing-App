@@ -1,4 +1,11 @@
-import type { Questionnaire, StyleProfile } from '@/lib/types';
+import type {
+  InspoImage,
+  ProfileDraft,
+  ProfileRecord,
+  Questionnaire,
+  StyleProfile,
+  WardrobeItem,
+} from '@/lib/types';
 
 type PersistedState = {
   questionnaire?: Partial<Questionnaire>;
@@ -26,4 +33,53 @@ export function normalizePersistedState(state: PersistedState): PersistedState {
       influences: Array.isArray(profile.influences) ? profile.influences : [],
     } as StyleProfile,
   };
+}
+
+const EPOCH = '1970-01-01T00:00:00.000Z';
+
+export interface PersistedStateV1 {
+  questionnaire?: Partial<Questionnaire>;
+  inspoImages?: InspoImage[];
+  wardrobeItems?: WardrobeItem[];
+  styleProfile?: Partial<StyleProfile> | null;
+  savedProductIds?: string[];
+  themeMode?: unknown;
+}
+
+export interface PersistedStateV2 {
+  profiles: ProfileRecord[];
+  activeProfileId: string | null;
+  draft: ProfileDraft | null;
+  themeMode: unknown;
+}
+
+/**
+ * Folds the single flat v1 profile into the v2 profiles list. Deterministic:
+ * the id is fixed rather than time-derived, so the same blob always migrates
+ * to the same result and the function is testable.
+ */
+export function migrateV1ToV2(state: PersistedStateV1): PersistedStateV2 {
+  const themeMode = state.themeMode ?? 'auto';
+  if (!state.styleProfile) {
+    return { profiles: [], activeProfileId: null, draft: null, themeMode };
+  }
+
+  const normalized = normalizePersistedState(state as PersistedState);
+  const profile = normalized.styleProfile as StyleProfile;
+
+  const record: ProfileRecord = {
+    id: 'profile-1',
+    name: 'My style',
+    profile,
+    questionnaire: normalized.questionnaire as Questionnaire,
+    referenceImages: state.inspoImages ?? [],
+    wardrobeItems: state.wardrobeItems ?? [],
+    wishlistIds: state.savedProductIds ?? [],
+    rejectedIds: [],
+    savedOutfits: [],
+    createdAt: profile.createdAt ?? EPOCH,
+    updatedAt: profile.updatedAt ?? EPOCH,
+  };
+
+  return { profiles: [record], activeProfileId: record.id, draft: null, themeMode };
 }

@@ -1,9 +1,17 @@
-import React from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { Alert, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '@/theme/useTheme';
 import { useAppStore } from '@/store/useAppStore';
+import {
+  selectActiveProfile,
+  selectActiveRecord,
+  selectQuestionnaire,
+  selectReferenceImages,
+  selectSavedOutfits,
+  selectWishlistIds,
+} from '@/store/selectors';
 import {
   Chip,
   EmptyState,
@@ -12,8 +20,9 @@ import {
   Slider,
   Surface,
 } from '@/components/primitives';
-import { STYLE_WORDS, VIBE_NAMES, type SliderKey } from '@/lib/types';
+import { STYLE_WORDS, VIBE_NAMES, type ProfileRecord, type SliderKey } from '@/lib/types';
 import { composeStyleVector } from '@/lib/vector';
+import { ImagePickerGrid } from '@/components/ImagePickerGrid';
 import { RadarChart } from '@/components/RadarChart';
 import { PaletteRow } from '@/components/PaletteRow';
 import { GarmentArt } from '@/components/GarmentArt';
@@ -27,16 +36,126 @@ const SLIDERS: Array<[SliderKey, string, string]> = [
   ['neutralColorful', 'Neutral', 'Colourful'],
 ];
 
+// Alert.alert is a no-op in react-native-web, which would make delete silently
+// fail in the browser.
+function confirmDelete(name: string, onConfirm: () => void) {
+  if (Platform.OS === 'web') {
+    if (window.confirm(`Delete “${name}”? Its wardrobe and saves go with it.`)) onConfirm();
+    return;
+  }
+  Alert.alert('Delete profile', `Delete “${name}”? Its wardrobe and saves go with it.`, [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete', style: 'destructive', onPress: onConfirm },
+  ]);
+}
+
+function ProfileRow({
+  record,
+  active,
+  onSelect,
+  onRename,
+  onDelete,
+}: {
+  record: ProfileRecord;
+  active: boolean;
+  onSelect: () => void;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+}) {
+  const { base, accent, type, spacing } = useTheme();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(record.name);
+
+  const commit = () => {
+    setEditing(false);
+    if (value.trim()) onRename(value);
+    else setValue(record.name);
+  };
+
+  return (
+    <Surface
+      level={2}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        marginBottom: spacing.sm,
+        padding: spacing.sm,
+      }}
+    >
+      <Pressable
+        onPress={onSelect}
+        accessibilityRole="radio"
+        accessibilityState={{ selected: active }}
+        accessibilityLabel={`Use ${record.name}`}
+        hitSlop={8}
+        style={{
+          width: 18,
+          height: 18,
+          borderRadius: 9,
+          borderWidth: 2,
+          borderColor: active ? accent.base : base.hairline,
+          backgroundColor: active ? accent.base : 'transparent',
+        }}
+      />
+      {editing ? (
+        <TextInput
+          value={value}
+          onChangeText={setValue}
+          onBlur={commit}
+          onSubmitEditing={commit}
+          autoFocus
+          accessibilityLabel="Profile name"
+          style={[type.body, { flex: 1, color: base.textHi }]}
+        />
+      ) : (
+        <Text
+          onPress={() => (active ? setEditing(true) : onSelect())}
+          numberOfLines={1}
+          accessibilityRole="button"
+          accessibilityLabel={active ? `Rename ${record.name}` : `Use ${record.name}`}
+          style={[type.body, { flex: 1, color: active ? base.textHi : base.textMid }]}
+        >
+          {record.name}
+        </Text>
+      )}
+      <Text
+        onPress={onDelete}
+        accessibilityRole="button"
+        accessibilityLabel={`Delete ${record.name}`}
+        style={[type.caption, { color: base.textLow, padding: spacing.xs }]}
+      >
+        Delete
+      </Text>
+    </Surface>
+  );
+}
+
 export function ProfilePane() {
   const { base, accent, type, spacing, mode, setMode } = useTheme();
-  const styleProfile = useAppStore((s) => s.styleProfile);
-  const questionnaire = useAppStore((s) => s.questionnaire);
+  const styleProfile = useAppStore(selectActiveProfile);
+  const questionnaire = useAppStore(selectQuestionnaire);
+  const referenceImages = useAppStore(selectReferenceImages);
+  const savedOutfits = useAppStore(selectSavedOutfits);
+  const activeRecord = useAppStore(selectActiveRecord);
+  const profiles = useAppStore((s) => s.profiles);
+  const activeProfileId = useAppStore((s) => s.activeProfileId);
+  const setActiveProfile = useAppStore((s) => s.setActiveProfile);
+  const renameProfile = useAppStore((s) => s.renameProfile);
+  const deleteProfile = useAppStore((s) => s.deleteProfile);
   const setSliders = useAppStore((s) => s.setSliders);
   const toggleWord = useAppStore((s) => s.toggleWord);
   const setProfile = useAppStore((s) => s.setStyleProfile);
-  const reset = useAppStore((s) => s.resetOnboarding);
+  const beginDraft = useAppStore((s) => s.beginDraft);
+  const addReferenceImages = useAppStore((s) => s.addReferenceImages);
+  const removeReferenceImage = useAppStore((s) => s.removeReferenceImage);
   const loadDemo = useAppStore((s) => s.loadDemoData);
-  const saved = useAppStore((s) => s.savedProductIds);
+  const saved = useAppStore(selectWishlistIds);
+
+  const startNewProfile = () => {
+    beginDraft('New style');
+    router.push('/onboarding' as never);
+  };
 
   const updateSlider = (key: SliderKey, value: number) => {
     const sliders = { ...questionnaire.sliders, [key]: value };
@@ -68,7 +187,23 @@ export function ProfilePane() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: base.canvas }} edges={['top']}>
       <ScrollView contentContainerStyle={{ padding: spacing.md, paddingBottom: spacing.xxl }}>
-        <Text style={[type.display, { color: base.textHi }]}>Your Style</Text>
+        <SectionHeader title="Profiles" />
+        {profiles.map((record) => (
+          <ProfileRow
+            key={record.id}
+            record={record}
+            active={record.id === activeProfileId}
+            onSelect={() => setActiveProfile(record.id)}
+            onRename={(name) => renameProfile(record.id, name)}
+            onDelete={() => confirmDelete(record.name, () => deleteProfile(record.id))}
+          />
+        ))}
+        <PrimaryButton label="+ New profile" variant="ghost" onPress={startNewProfile} />
+
+        <SectionHeader title="Your Style" />
+        <Text style={[type.display, { color: base.textHi }]}>
+          {activeRecord?.name ?? 'Your style'}
+        </Text>
         <Text style={[type.body, { color: accent.bright, marginTop: 4 }]}>
           {styleProfile.tags.join(' · ')}
         </Text>
@@ -94,6 +229,26 @@ export function ProfilePane() {
             <Chip key={x} label={x} />
           ))}
         </View>
+
+        <SectionHeader title="Reference images" />
+        <ImagePickerGrid
+          max={8}
+          uris={referenceImages.map((x) => x.uri)}
+          onAdd={(uris) =>
+            addReferenceImages(
+              uris.map((uri) => ({
+                id: `${Date.now()}-${uri}`,
+                uri,
+                attributes: null,
+                uploadedAt: new Date().toISOString(),
+              })),
+            )
+          }
+          onRemove={(uri) => {
+            const image = referenceImages.find((x) => x.uri === uri);
+            if (image) removeReferenceImage(image.id);
+          }}
+        />
 
         <SectionHeader title="Retune" />
         {SLIDERS.map(([key, left, right]) => (
@@ -126,7 +281,7 @@ export function ProfilePane() {
           ))}
         </View>
 
-        <SectionHeader title="Saved" />
+        <SectionHeader title="Want" />
         {saved.length ? (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
             {ALL_PRODUCTS.filter((p) => saved.includes(p.id)).map((p) => (
@@ -138,19 +293,14 @@ export function ProfilePane() {
           </View>
         ) : (
           <Text style={[type.body, { color: base.textLow }]}>
-            Save recommendations to find them here.
+            Swipe right on pieces you like to find them here.
           </Text>
         )}
 
-        <PrimaryButton
-          label="Redo onboarding"
-          variant="ghost"
-          onPress={() => {
-            reset();
-            router.replace('/onboarding' as never);
-          }}
-          style={{ marginTop: spacing.xl }}
-        />
+        <SectionHeader title="Saved outfits" />
+        <Text style={[type.body, { color: base.textMid }]}>
+          {savedOutfits.length} saved · see them in Closet
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );
