@@ -54,7 +54,7 @@ export default function PagerScreen() {
             <ProfilePane />
           </View>
           <View style={{ width }}>
-            <ExplorePane />
+            <ExplorePane onNavigateToPane={onSelect} />
           </View>
           <View style={{ width }}>
             <ClosetPane />
