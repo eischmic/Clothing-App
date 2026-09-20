@@ -125,13 +125,13 @@ export function GarmentSwipeCard({
               onPress={onPress}
               numberOfLines={2}
               accessibilityRole="button"
-              accessibilityLabel={`${product.name} by ${product.brand}, $${product.price}. Open details.`}
+              accessibilityLabel={`${product.name} by ${product.brand}. Open details.`}
               style={[type.body, { color: base.textHi, fontWeight: '700' }]}
             >
               {product.name}
             </Text>
             <Text style={[type.caption, { color: base.textMid }]}>
-              {product.brand} · ${product.price}
+              {product.brand}
             </Text>
           </View>
           <Animated.View style={[{ position: 'absolute', right: spacing.md }, yesStyle]}>

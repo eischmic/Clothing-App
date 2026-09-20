@@ -3,6 +3,7 @@ import {
   candidatesForSlot,
   outfitProducts,
   refillSlot,
+  shouldRefill,
   type DeckContext,
 } from '@/lib/deck';
 import { areCompatible } from '@/lib/compatibility';
@@ -13,7 +14,6 @@ const product = (over: Partial<Product> & Pick<Product, 'id'>): Product => ({
   name: over.id,
   brand: 'Test',
   category: 'top',
-  price: 100,
   url: 'https://example.com',
   imageUri: null,
   description: 'a garment',
@@ -44,7 +44,6 @@ const ctx = (over: Partial<DeckContext> = {}): DeckContext => ({
   products: CATALOG,
   userVector: { ...zeroVector(), minimalism: 1 },
   rejectedIds: [],
-  budgetCenter: 100,
   ...over,
 });
 
@@ -121,5 +120,123 @@ describe('candidatesForSlot', () => {
       'a-top',
       'z-top',
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldRefill — loop-free feed refill guard
+// ---------------------------------------------------------------------------
+
+// Helpers: a small feed array and a distinct one to simulate provider returns.
+const FEED_A: import('@/lib/types').Product[] = CATALOG.slice(0, 5);
+const FEED_B: import('@/lib/types').Product[] = CATALOG.slice(0, 6); // different reference
+const PROFILE_A = 'profile-a';
+const PROFILE_B = 'profile-b';
+
+describe('shouldRefill', () => {
+  it('(a) returns false after a refill when the seeded feed is unchanged', () => {
+    expect(
+      shouldRefill(
+        FEED_A,
+        { profileId: PROFILE_A, rejectedIds: [] },
+        { profileId: PROFILE_A, rejectedIds: [] },
+        'ready',
+        8,
+      ),
+    ).toBe(false);
+  });
+
+  it('(b) blocks a second refill when the backend returns a distinct small feed without another swipe', () => {
+    const smallFeedBeforeRefill = CATALOG.slice(0, 3);
+    const smallFeedAfterRefill = CATALOG.slice(3, 6);
+    const refillState = { profileId: PROFILE_A, rejectedIds: [] };
+
+    expect(smallFeedAfterRefill).not.toBe(smallFeedBeforeRefill);
+    expect(
+      shouldRefill(smallFeedAfterRefill, refillState, refillState, 'ready', 8),
+    ).toBe(false);
+  });
+
+  it('(c) fires after another swipe drains the feed below the threshold', () => {
+    const rejectedAll = FEED_B.map((p) => p.id);
+    expect(
+      shouldRefill(
+        FEED_B,
+        { profileId: PROFILE_A, rejectedIds: [] },
+        { profileId: PROFILE_A, rejectedIds: rejectedAll },
+        'ready',
+        8,
+      ),
+    ).toBe(true);
+  });
+
+  // (c) continued: does NOT fire when remaining >= threshold.
+  it('(c) does not fire when remaining >= threshold despite changed reference', () => {
+    // FEED_B has 6 items; threshold is 4; none rejected → remaining = 6 >= 4
+    expect(
+      shouldRefill(
+        FEED_B,
+        null,
+        { profileId: PROFILE_A, rejectedIds: [] },
+        'ready',
+        4,
+      ),
+    ).toBe(false);
+  });
+
+  it('(d) fires after switching to a profile with a fresh feed', () => {
+    const emptyFeed: import('@/lib/types').Product[] = [];
+    expect(
+      shouldRefill(
+        emptyFeed,
+        { profileId: PROFILE_A, rejectedIds: [] },
+        { profileId: PROFILE_B, rejectedIds: [] },
+        'ready',
+        8,
+      ),
+    ).toBe(true);
+  });
+
+  it('returns false when status is loading', () => {
+    expect(
+      shouldRefill(
+        FEED_A,
+        null,
+        { profileId: PROFILE_A, rejectedIds: [] },
+        'loading',
+        8,
+      ),
+    ).toBe(false);
+  });
+
+  it('returns false when status is idle', () => {
+    expect(
+      shouldRefill(FEED_A, null, { profileId: PROFILE_A, rejectedIds: [] }, 'idle', 8),
+    ).toBe(false);
+  });
+
+  it('returns false when status is degraded', () => {
+    expect(
+      shouldRefill(
+        FEED_A,
+        null,
+        { profileId: PROFILE_A, rejectedIds: [] },
+        'degraded',
+        8,
+      ),
+    ).toBe(false);
+  });
+
+  it('returns true on first call (lastRefillFeed null) when remaining < threshold', () => {
+    const tinyFeed = CATALOG.slice(0, 2); // 2 items < threshold 8
+    expect(
+      shouldRefill(
+        tinyFeed,
+        null,
+        { profileId: PROFILE_A, rejectedIds: [] },
+        'ready',
+        8,
+      ),
+    ).toBe(true);
   });
 });

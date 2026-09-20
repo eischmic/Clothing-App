@@ -2,7 +2,7 @@
 
 import type { Product, StyleVector } from '@/lib/types';
 import { areCompatible } from '@/lib/compatibility';
-import { priceScore, styleScore } from '@/lib/scoring';
+import { styleScore } from '@/lib/scoring';
 
 export type Slot = 'top' | 'bottom' | 'footwear' | 'outerwear' | 'knitwear';
 
@@ -26,7 +26,6 @@ export interface DeckContext {
   products: Product[];
   userVector: StyleVector;
   rejectedIds: string[];
-  budgetCenter: number;
 }
 
 export function outfitProducts(outfit: DeckOutfit): Product[] {
@@ -36,12 +35,8 @@ export function outfitProducts(outfit: DeckOutfit): Product[] {
   });
 }
 
-export function outfitTotal(outfit: DeckOutfit): number {
-  return outfitProducts(outfit).reduce((sum, p) => sum + p.price, 0);
-}
-
 function rank(ctx: DeckContext, p: Product): number {
-  return styleScore(ctx.userVector, p) + 0.2 * priceScore(p.price, ctx.budgetCenter);
+  return styleScore(ctx.userVector, p);
 }
 
 export function candidatesForSlot(ctx: DeckContext, slot: Slot): Product[] {
@@ -85,6 +80,63 @@ export function buildOutfit(ctx: DeckContext): DeckOutfit | null {
   }
 
   return { slots };
+}
+
+// ---------------------------------------------------------------------------
+// Feed refill guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Decides whether the feed should be refilled, loop-free.
+ *
+ * WHY this is needed: The naive guard `status === 'ready' && remaining <
+ * threshold` loops forever on the seeded/offline path. `seededProvider.all()`
+ * returns the same `ALL_PRODUCTS` array object every call, so after a refill
+ * the store publishes the identical array reference. `remaining` stays below
+ * the threshold, the effect fires again, and the store enters an infinite
+ * fetch cycle.
+ *
+ * The backend path has a narrower version: if the server keeps returning a
+ * small-but-non-empty pool (user has swiped through most of what it will
+ * serve), the same thing happens — the pool never grows past the threshold,
+ * so refill is called on every render cycle.
+ *
+ * THE GUARD: a refill is allowed once for each profile-and-swipe state. A
+ * fresh backend array alone does not earn another request, which prevents a
+ * small backend pool from looping forever. The next swipe changes
+ * `rejectedIds`, so it earns another refill if the newly-drained feed needs
+ * one. Switching profiles also starts with a distinct refill state.
+ *
+ * @param feed            The current feed array.
+ * @param lastRefillState The profile and rejections that last triggered a refill.
+ * @param refillState     The current profile and rejections.
+ * @param status        Current catalog status.
+ * @param threshold     Request a refill when visible items fall below this count.
+ * @returns true if a refill should be fired; false otherwise.
+ */
+export interface RefillState {
+  profileId: string | null;
+  rejectedIds: string[];
+}
+
+function sameRefillState(a: RefillState, b: RefillState): boolean {
+  if (a.profileId !== b.profileId || a.rejectedIds.length !== b.rejectedIds.length) return false;
+  const rejected = new Set(a.rejectedIds);
+  return b.rejectedIds.every((id) => rejected.has(id));
+}
+
+export function shouldRefill(
+  feed: Product[],
+  lastRefillState: RefillState | null,
+  refillState: RefillState,
+  status: 'idle' | 'loading' | 'ready' | 'degraded',
+  threshold: number,
+): boolean {
+  if (status !== 'ready') return false;
+  const rejectedSet = new Set(refillState.rejectedIds);
+  const remaining = feed.filter((p) => !rejectedSet.has(p.id)).length;
+  if (remaining >= threshold) return false;
+  return lastRefillState === null || !sameRefillState(lastRefillState, refillState);
 }
 
 export function refillSlot(ctx: DeckContext, outfit: DeckOutfit, slot: Slot): DeckOutfit | null {

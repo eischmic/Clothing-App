@@ -2,8 +2,6 @@ import type { Category, Product } from '@/lib/types';
 
 export interface ProductQuery {
   category?: Category;
-  maxPrice?: number;
-  minPrice?: number;
   text?: string;
 }
 

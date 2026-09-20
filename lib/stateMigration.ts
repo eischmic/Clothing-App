@@ -1,5 +1,6 @@
 import type {
   InspoImage,
+  Product,
   ProfileDraft,
   ProfileRecord,
   Questionnaire,
@@ -47,7 +48,7 @@ export interface PersistedStateV1 {
 }
 
 export interface PersistedStateV2 {
-  profiles: ProfileRecord[];
+  profiles: (Omit<ProfileRecord, 'backendProfileId'> & { backendProfileId?: string | null })[];
   activeProfileId: string | null;
   draft: ProfileDraft | null;
   themeMode: unknown;
@@ -77,9 +78,39 @@ export function migrateV1ToV2(state: PersistedStateV1): PersistedStateV2 {
     wishlistIds: state.savedProductIds ?? [],
     rejectedIds: [],
     savedOutfits: [],
+    backendProfileId: null,
     createdAt: profile.createdAt ?? EPOCH,
     updatedAt: profile.updatedAt ?? EPOCH,
   };
 
   return { profiles: [record], activeProfileId: record.id, draft: null, themeMode };
+}
+
+export interface PersistedStateV3 {
+  profiles: ProfileRecord[];
+  activeProfileId: string | null;
+  draft: ProfileDraft | null;
+  themeMode: unknown;
+  catalog: { byId: Record<string, Product> };
+}
+
+/**
+ * v2 -> v3. Existing profiles get `backendProfileId: null`, which is correct
+ * rather than merely safe: they were never created on the backend, so they
+ * legitimately continue on the seeded provider.
+ *
+ * Only `byId` is seeded, not `feed` or `status` — the feed is a live,
+ * profile-specific slice that must be re-fetched, never restored.
+ */
+export function migrateV2ToV3(state: PersistedStateV2): PersistedStateV3 {
+  return {
+    profiles: (state.profiles ?? []).map((p) => ({
+      ...p,
+      backendProfileId: p.backendProfileId ?? null,
+    })),
+    activeProfileId: state.activeProfileId ?? null,
+    draft: state.draft ?? null,
+    themeMode: state.themeMode ?? 'auto',
+    catalog: { byId: {} },
+  };
 }

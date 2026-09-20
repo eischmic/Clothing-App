@@ -38,6 +38,7 @@ function record(id: string, over: Partial<ProfileRecord> = {}): ProfileRecord {
     wishlistIds: [],
     rejectedIds: [],
     savedOutfits: [],
+    backendProfileId: null,
     createdAt: 'T0',
     updatedAt: 'T0',
     ...over,

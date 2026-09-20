@@ -13,19 +13,17 @@ Config via environment variables:
     STYLE_TEMPERATURE  default 40         (lower = flatter style breakdown, higher = peakier)
 
 Flow:
-    1. POST /sessions/from-photos   (or /sessions/from-articles for demo personas)
-       -> builds a style profile, returns a session_id + style breakdown
-    2. GET  /sessions/{id}/recommendations
-    3. POST /sessions/{id}/feedback  (liked / disliked article_ids) -> profile is updated
+    1. POST /profiles                       (name + 3..15 photos)
+       -> persisted profile_id + reference image URLs
+    2. GET  /profiles/{id}/next             -> ranked items, swiped ones excluded
+    3. POST /profiles/{id}/swipe            -> the profile vector moves
        -> call step 2 again for a fresh batch
 """
 import os
 import threading
-import uuid
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -35,59 +33,28 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 from pydantic import BaseModel
 
+import axes
 from db import Database
 from engine import StyleEngine
 
 INDEX_DIR = os.environ.get("INDEX_DIR", "index")
 THUMBS_DIR = Path(os.environ.get("THUMBS_DIR", "thumbs"))
 STYLE_TEMPERATURE = float(os.environ.get("STYLE_TEMPERATURE", "40"))
-MAX_PHOTOS = 12
 
 DB_PATH = os.environ.get("DB_PATH", "data/fitlab.db")
 REFS_DIR = os.environ.get("REFS_DIR", "data/references")
-MIN_PROFILE_PHOTOS = 5
+# 3, not 5: app/onboarding/index.tsx asks for 3-8 photos, and a user following
+# the UI's own instructions was getting a 400.
+MIN_PROFILE_PHOTOS = 3
 MAX_PROFILE_PHOTOS = 15
 
 
 # ----------------------------------------------------------------- schemas
-class Item(BaseModel):
-    article_id: str
-    name: Optional[str] = None
-    product_type: Optional[str] = None
-    product_group: Optional[str] = None
-    colour: Optional[str] = None
-    description: Optional[str] = None
+class ReferencePhotoOut(BaseModel):
+    ref_id: str
     image_url: str
-    score: float
 
 
-class SessionOut(BaseModel):
-    session_id: str
-    n_prototypes: int
-    style_breakdown: Dict[str, float]
-
-
-class RecsOut(BaseModel):
-    session_id: str
-    items: List[Item]
-
-
-class ArticlesIn(BaseModel):
-    article_ids: List[str]
-    k: int = 1
-
-
-class FeedbackIn(BaseModel):
-    liked_ids: List[str] = []
-    disliked_ids: List[str] = []
-
-
-class FeedbackOut(BaseModel):
-    applied: int
-    style_breakdown: Dict[str, float]
-
-
-# --- /profiles contract (persistent, SQLite-backed) -------------------------
 class ProfileItem(BaseModel):
     article_id: str
     name: Optional[str] = None
@@ -96,12 +63,18 @@ class ProfileItem(BaseModel):
     description: Optional[str] = None
     image_url: str
     buy_url: str
+    category: str
+    colour_family: str
+    formality: int
+    seasons: List[str]
+    vector: List[float]
 
 
 class ProfileOut(BaseModel):
     profile_id: str
     name: str
     n_refs: int
+    references: List[ReferencePhotoOut] = []
 
 
 class ProfileSummary(BaseModel):
@@ -117,6 +90,7 @@ class ProfileDetail(BaseModel):
     n_swipes: int
     n_liked: int
     style_breakdown: Dict[str, float]
+    vector: List[float]
 
 
 class NextOut(BaseModel):
@@ -132,26 +106,12 @@ class SwipeOut(BaseModel):
     n_swipes: int
 
 
-class ReferencePhotoOut(BaseModel):
-    ref_id: str
-    image_url: str
-
-
 class WardrobeOut(BaseModel):
     liked: List[ProfileItem]
     references: List[ReferencePhotoOut]
 
 
 # ------------------------------------------------------------------- state
-@dataclass
-class Session:
-    profile: np.ndarray                                   # [k, d] style prototypes
-    exclude: Set[str] = field(default_factory=set)        # never recommend these again
-
-
-# In-memory only: fine for a demo, wiped whenever the server restarts.
-SESSIONS: Dict[str, Session] = {}
-
 # One model, one CPU: don't run several inferences at once.
 MODEL_LOCK = threading.Lock()
 
@@ -186,43 +146,13 @@ def _engine(request: Request) -> StyleEngine:
     return request.app.state.engine
 
 
-def _get_session(session_id: str) -> Session:
-    s = SESSIONS.get(session_id)
-    if s is None:
-        raise HTTPException(status_code=404, detail="Unknown session_id (did the server restart?)")
-    return s
-
-
 def _breakdown(eng: StyleEngine, profile: np.ndarray) -> Dict[str, float]:
     with MODEL_LOCK:
         return eng.style_breakdown(profile, temperature=STYLE_TEMPERATURE)
 
 
-def _new_session(eng: StyleEngine, profile: np.ndarray, exclude=()) -> SessionOut:
-    sid = uuid.uuid4().hex[:12]
-    SESSIONS[sid] = Session(profile=profile, exclude=set(exclude))
-    return SessionOut(
-        session_id=sid,
-        n_prototypes=len(profile),
-        style_breakdown=_breakdown(eng, profile),
-    )
-
-
 def _clean(v):
     return None if pd.isna(v) else v
-
-
-def _to_item(row, base_url: str) -> Item:
-    return Item(
-        article_id=row["article_id"],
-        name=_clean(row.get("prod_name")),
-        product_type=_clean(row.get("product_type_name")),
-        product_group=_clean(row.get("product_group_name")),
-        colour=_clean(row.get("colour_group_name")),
-        description=_clean(row.get("detail_desc")),
-        image_url=f"{base_url}thumbs/{row['image_rel']}",
-        score=float(row["score"]),
-    )
 
 
 def _buy_url(article_id: str) -> str:
@@ -233,6 +163,17 @@ def _buy_url(article_id: str) -> str:
 
 
 def _to_profile_item(row, base_url: str) -> ProfileItem:
+    """Catalog row -> wire Product. Callers must pass a recommendable row.
+
+    There are deliberately no `or <default>` fallbacks on the sidecar columns.
+    StyleEngine._join_sidecar already asserts that no recommendable row has a
+    null in any of them, so a fallback here could only ever fire on data that
+    is already known-broken -- and would hide it behind a plausible-looking
+    value instead. `category or "top"` did exactly that: it served excluded
+    Dresses as tops. Let a genuine hole raise instead.
+    """
+    assert bool(row["recommendable"]), f"{row['article_id']} is not recommendable"
+    seasons = str(row["seasons"])
     return ProfileItem(
         article_id=row["article_id"],
         name=_clean(row.get("prod_name")),
@@ -241,6 +182,11 @@ def _to_profile_item(row, base_url: str) -> ProfileItem:
         description=_clean(row.get("detail_desc")),
         image_url=f"{base_url}thumbs/{row['image_rel']}",
         buy_url=_buy_url(row["article_id"]),
+        category=str(row["category"]),
+        colour_family=str(row["colour_family"]),
+        formality=int(row["formality"]),
+        seasons=[s for s in seasons.split(",") if s],
+        vector=[float(row[dim]) for dim in axes.STYLE_DIMENSIONS],
     )
 
 
@@ -275,7 +221,7 @@ def health(request: Request):
     return {
         "status": "ok",
         "catalog_size": len(_engine(request).catalog),
-        "sessions": len(SESSIONS),
+        "profiles": len(DB.list_profiles()),
     }
 
 
@@ -286,100 +232,26 @@ def catalog_groups(request: Request):
     return {str(k): int(v) for k, v in counts.items()}
 
 
-@app.post("/sessions/from-photos", response_model=SessionOut)
-def session_from_photos(
-    request: Request,
-    files: List[UploadFile] = File(...),
-    k: int = Form(1, ge=1, le=4),
-):
-    """Multipart upload of 1..12 outfit/clothing photos -> style profile."""
-    if not files or len(files) > MAX_PHOTOS:
-        raise HTTPException(status_code=400, detail=f"Send between 1 and {MAX_PHOTOS} photos")
-
-    images = []
-    for f in files:
-        try:
-            img = Image.open(f.file)
-            img = ImageOps.exif_transpose(img) or img      # phone photos: fix rotation
-            img = img.convert("RGB")
-            img.thumbnail((1024, 1024))                    # don't burn CPU on 12MP images
-            images.append(img)
-        except Exception:
-            raise HTTPException(status_code=400, detail=f"Could not read '{f.filename}' as an image")
-
+@app.get("/catalog/{article_id}", response_model=ProfileItem)
+def catalog_item(article_id: str, request: Request):
+    """Single-item lookup. The client's product-detail screen and its persisted
+    closet both hold article_ids that will not be in the current /next slice."""
     eng = _engine(request)
-    with MODEL_LOCK:
-        vecs = eng.embed_images(images)
-    profile = eng.build_profile(vecs, k=k)
-    return _new_session(eng, profile)
-
-
-@app.post("/sessions/from-articles", response_model=SessionOut)
-def session_from_articles(body: ArticlesIn, request: Request):
-    """Profile from catalog items (e.g. a demo persona's past purchases).
-    The given items are also excluded from that session's recommendations."""
-    eng = _engine(request)
-    known = [a for a in body.article_ids if a in eng.id_to_row]
-    if not known:
-        raise HTTPException(
-            status_code=400,
-            detail="None of these article_ids are in the catalog subset "
-                   "(ids are 10-character strings, e.g. '0108775015')",
-        )
-    profile = eng.build_profile(eng.vectors_for_articles(known), k=body.k)
-    return _new_session(eng, profile, exclude=known)
-
-
-@app.get("/sessions/{session_id}", response_model=SessionOut)
-def get_session(session_id: str, request: Request):
-    s = _get_session(session_id)
-    return SessionOut(
-        session_id=session_id,
-        n_prototypes=len(s.profile),
-        style_breakdown=_breakdown(_engine(request), s.profile),
-    )
-
-
-@app.get("/sessions/{session_id}/recommendations", response_model=RecsOut)
-def recommendations(
-    session_id: str,
-    request: Request,
-    n: int = Query(20, ge=1, le=100),
-    groups: Optional[List[str]] = Query(None, description="restrict to product_group_name values"),
-    diversity: float = Query(0.3, ge=0.0, le=1.0, description="0 = most similar, 1 = most varied"),
-):
-    s = _get_session(session_id)
-    eng = _engine(request)
-    recs = eng.recommend(
-        s.profile, n=n, exclude_ids=s.exclude, groups=groups, lambda_=1.0 - diversity
-    )
-    base = str(request.base_url)
-    return RecsOut(
-        session_id=session_id,
-        items=[_to_item(row, base) for _, row in recs.iterrows()],
-    )
-
-
-@app.post("/sessions/{session_id}/feedback", response_model=FeedbackOut)
-def feedback(session_id: str, body: FeedbackIn, request: Request):
-    """Like/dislike -> nudges the profile. Judged items are never shown again."""
-    s = _get_session(session_id)
-    eng = _engine(request)
-    liked = [a for a in body.liked_ids if a in eng.id_to_row]
-    disliked = [a for a in body.disliked_ids if a in eng.id_to_row]
-
-    s.profile = eng.feedback_update(s.profile, liked_ids=liked, disliked_ids=disliked)
-    s.exclude.update(liked)
-    s.exclude.update(disliked)
-    return FeedbackOut(
-        applied=len(liked) + len(disliked),
-        style_breakdown=_breakdown(eng, s.profile),
-    )
+    r = eng.id_to_row.get(article_id)
+    if r is None:
+        raise HTTPException(status_code=404, detail="Unknown article_id")
+    row = eng.catalog.iloc[r]
+    # Non-recommendable rows carry no category -- they are the dresses,
+    # underwear, swimwear and homeware the outfit graph has no slot for. They
+    # can never come out of /next, so the only way to ask for one is to guess an
+    # id. 404 rather than serve it: the fallback below used to relabel them
+    # "top", which handed the client a Dress to put in its top slot.
+    if not bool(row["recommendable"]):
+        raise HTTPException(status_code=404, detail="Article is not recommendable")
+    return _to_profile_item(row, str(request.base_url))
 
 
 # ----------------------------------------------------- /profiles endpoints
-# Persistent counterpart to /sessions, backed by SQLite (see db.py). Kept
-# alongside /sessions until the frontend switches over to this contract.
 @app.post("/profiles", response_model=ProfileOut)
 def create_profile(
     request: Request,
@@ -408,13 +280,23 @@ def create_profile(
         vecs = eng.embed_images(images)
 
     profile_id, _ = DB.create_profile(name)
+    references = []
+    base = str(request.base_url)
     for img, vec in zip(images, vecs):
-        _ref_id, rel_path = DB.add_reference_photo(profile_id, vec)
+        ref_id, rel_path = DB.add_reference_photo(profile_id, vec)
         dest = DB.refs_dir / rel_path
         dest.parent.mkdir(parents=True, exist_ok=True)
         img.save(dest, format="JPEG", quality=85)
+        references.append(
+            ReferencePhotoOut(ref_id=ref_id, image_url=f"{base}references/{rel_path}")
+        )
 
-    return ProfileOut(profile_id=profile_id, name=name, n_refs=len(images))
+    return ProfileOut(
+        profile_id=profile_id,
+        name=name,
+        n_refs=len(images),
+        references=references,
+    )
 
 
 @app.get("/profiles", response_model=List[ProfileSummary])
@@ -437,6 +319,7 @@ def get_profile(profile_id: str, request: Request):
         n_swipes=DB.count_swipes(profile_id),
         n_liked=DB.count_liked(profile_id),
         style_breakdown=_breakdown(eng, profile_vec),
+        vector=eng.project_profile(profile_vec),
     )
 
 
@@ -456,8 +339,19 @@ def next_items(
 
 
 @app.post("/profiles/{profile_id}/swipe", response_model=SwipeOut)
-def swipe(profile_id: str, body: SwipeIn):
+def swipe(profile_id: str, body: SwipeIn, request: Request):
     _get_db_profile(profile_id)
+
+    # Guard here rather than when reading the wardrobe back. /next only ever
+    # emits recommendable articles, but the endpoint takes an article_id from
+    # the client, and an unrecommendable one stored now is a row that can never
+    # be rendered later -- /wardrobe would either 500 on it or have to drop it
+    # silently, losing a garment the user said they liked. Refuse the write.
+    eng = _engine(request)
+    r = eng.id_to_row.get(body.article_id)
+    if r is None or not bool(eng.catalog.iloc[r]["recommendable"]):
+        raise HTTPException(status_code=404, detail="Unknown or non-recommendable article")
+
     DB.add_swipe(profile_id, body.article_id, body.liked)
     return SwipeOut(n_swipes=DB.count_swipes(profile_id))
 

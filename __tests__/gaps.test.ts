@@ -13,7 +13,6 @@ const args = {
   wardrobe: DEMO_WARDROBE,
   userVector: { ...zeroVector(), outdoor: 0.7, minimalism: 0.6 },
   products: ALL_PRODUCTS,
-  budgetCenter: 120,
 };
 
 describe('readouts', () => {

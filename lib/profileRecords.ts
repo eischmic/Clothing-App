@@ -32,6 +32,7 @@ export function draftToRecord(
     wishlistIds: [],
     rejectedIds: [],
     savedOutfits: [],
+    backendProfileId: null,
     createdAt: now,
     updatedAt: now,
   };

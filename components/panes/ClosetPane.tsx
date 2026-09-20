@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -6,13 +6,14 @@ import { useTheme } from '@/theme/useTheme';
 import { useAppStore } from '@/store/useAppStore';
 import {
   selectActiveProfile,
+  selectCatalogById,
+  selectCatalogFeed,
   selectSavedOutfits,
   selectWardrobe,
   selectWishlistIds,
 } from '@/store/selectors';
 import { analyzeGaps, categoryCoverage, colorBalance, formalitySpread } from '@/lib/gaps';
 import { buildEdges, countOutfits, enumerateOutfits } from '@/lib/outfits';
-import { ALL_PRODUCTS } from '@/lib/catalog/seeded';
 import { COLOR_FAMILIES, type ColorFamily } from '@/lib/types';
 import { wardrobeItemsFromAnalysis } from '@/lib/wardrobeImport';
 import { CoverageBars } from '@/components/CoverageBars';
@@ -33,8 +34,6 @@ const FAMILY_HEX: Record<ColorFamily, string> = {
 
 const FORMALITY_LABELS = ['Athleisure', 'Casual', 'Smart', 'Dressy', 'Formal'] as const;
 
-const PRODUCT_BY_ID = new Map(ALL_PRODUCTS.map((p) => [p.id, p]));
-
 export function ClosetPane() {
   const { base, accent, type, spacing, radii } = useTheme();
   const wardrobeItems = useAppStore(selectWardrobe);
@@ -43,8 +42,18 @@ export function ClosetPane() {
   const addWardrobeItems = useAppStore((s) => s.addWardrobeItems);
   const wishlistIds = useAppStore(selectWishlistIds);
   const savedOutfits = useAppStore(selectSavedOutfits);
+  const productById = useAppStore(selectCatalogById);
+  const feed = useAppStore(selectCatalogFeed);
+  const resolveProducts = useAppStore((s) => s.resolveProducts);
   const toggleWishlist = useAppStore((s) => s.toggleWishlist);
   const removeSavedOutfit = useAppStore((s) => s.removeSavedOutfit);
+  // Wishlisted and saved-outfit ids can name products that are not in the
+  // current ranked feed; resolve those individually.
+  useEffect(() => {
+    const ids = [...wishlistIds, ...savedOutfits.flatMap((o) => o.productIds)];
+    if (ids.length) void resolveProducts(ids);
+  }, [wishlistIds, savedOutfits, resolveProducts]);
+
   const [adding, setAdding] = useState(false);
   const [draftUris, setDraftUris] = useState<string[]>([]);
   const [highlightId, setHighlightId] = useState<string>();
@@ -55,11 +64,10 @@ export function ClosetPane() {
         ? analyzeGaps({
             wardrobe: wardrobeItems,
             userVector: profile.vector,
-            products: ALL_PRODUCTS,
-            budgetCenter: 120,
+            products: feed,
           })
         : [],
-    [profile, wardrobeItems],
+    [profile, wardrobeItems, feed],
   );
   const coverage = useMemo(() => categoryCoverage(wardrobeItems), [wardrobeItems]);
   const balance = useMemo(() => colorBalance(wardrobeItems), [wardrobeItems]);
@@ -304,7 +312,7 @@ export function ClosetPane() {
         {wishlistIds.length ? (
           wishlistIds.map((id) => {
             // A stale persisted id must not crash the pane.
-            const product = PRODUCT_BY_ID.get(id);
+            const product = productById[id];
             if (!product) return null;
             return (
               <Surface
@@ -330,7 +338,7 @@ export function ClosetPane() {
                     {product.name}
                   </Text>
                   <Text style={[type.caption, { color: base.textMid }]}>
-                    {product.brand} · ${product.price}
+                    {product.brand}
                   </Text>
                 </View>
                 <Text
@@ -354,10 +362,9 @@ export function ClosetPane() {
         {savedOutfits.length ? (
           savedOutfits.map((saved) => {
             const pieces = saved.productIds.flatMap((id) => {
-              const product = PRODUCT_BY_ID.get(id);
+              const product = productById[id];
               return product ? [product] : [];
             });
-            const total = pieces.reduce((sum, p) => sum + p.price, 0);
             return (
               <Surface
                 key={saved.id}
@@ -375,7 +382,6 @@ export function ClosetPane() {
                   ))}
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={[type.body, { color: accent.bright, flex: 1 }]}>${total}</Text>
                   <Text
                     onPress={() => removeSavedOutfit(saved.id)}
                     accessibilityRole="button"

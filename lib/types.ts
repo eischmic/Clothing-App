@@ -30,7 +30,7 @@ export interface Garment {
   seasons: Season[];
 }
 
-export const SCORE_WEIGHTS = { style: 0.5, wardrobe: 0.2, price: 0.15, occasion: 0.15 } as const;
+export const SCORE_WEIGHTS = { style: 0.60, wardrobe: 0.25, occasion: 0.15 } as const;
 export type ScoreComponent = keyof typeof SCORE_WEIGHTS;
 export const IMAGE_WEIGHT = 0.6;
 export const QUESTIONNAIRE_WEIGHT = 0.4;
@@ -123,7 +123,6 @@ export interface Product {
   id: string;
   name: string;
   brand: string;
-  price: number;
   /** `null` → render procedural `GarmentArt` instead of a photo. */
   imageUri: string | null;
   description: string;
@@ -154,6 +153,8 @@ export interface ProfileRecord {
   wishlistIds: string[];
   rejectedIds: string[];
   savedOutfits: SavedOutfit[];
+  /** `null` for profiles created before the backend existed, or while it was down. */
+  backendProfileId: string | null;
   createdAt: string;
   updatedAt: string;
 }

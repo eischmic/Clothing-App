@@ -34,7 +34,7 @@ export function ProductCard({
               {product.name}
             </Text>
             <Text style={[type.caption, { color: base.textMid }]}>
-              {product.brand} · ${product.price}
+              {product.brand}
             </Text>
             {recommendation.reasons.slice(0, 2).map((reason) => (
               <Text key={reason} style={[type.caption, { color: accent.bright }]}>

@@ -77,6 +77,52 @@ export function blendVectors(
   return result;
 }
 
+/**
+ * How much evidence it takes before the CLIP projection outweighs the
+ * questionnaire. At n = K the two are equal. Tunable once real projections
+ * have been observed.
+ */
+export const EVIDENCE_K = 4;
+
+/**
+ * Fraction of the profile vector that should come from CLIP, given how much
+ * the user has actually shown us. `w = n / (n + K)`.
+ *
+ * Zero evidence returns 0, which is why the backend-down path needs no special
+ * case: it is the formula's natural endpoint, not an exception to it.
+ */
+export function evidenceWeight(nRefs: number, nSwipes: number): number {
+  const n = Math.max(0, nRefs) + Math.max(0, nSwipes);
+  if (n <= 0) return 0;
+  return n / (n + EVIDENCE_K);
+}
+
+/**
+ * Treats the questionnaire as a PRIOR that evidence displaces, rather than a
+ * competitor to be discarded. A mean of 3 CLIP embeddings is noisy, and at that
+ * floor the questionnaire genuinely is the better estimate — this says so.
+ */
+export function blendWithPrior(
+  clip: StyleVector,
+  questionnaire: StyleVector,
+  nRefs: number,
+  nSwipes: number,
+): StyleVector {
+  const w = evidenceWeight(nRefs, nSwipes);
+  // clampVector on the way out, like every other vector producer in this file.
+  // The blend of two in-range vectors is already in range -- `w` and `1 - w`
+  // are non-negative and sum to exactly 1 -- so this is a no-op on good input.
+  // It earns its place on bad input: `clip` arrives from the network, and an
+  // out-of-range axis would otherwise propagate into cosine scoring unchecked.
+  if (w <= 0) return clampVector(questionnaire);
+  return clampVector(
+    blendVectors([
+      { vector: clip, weight: w },
+      { vector: questionnaire, weight: 1 - w },
+    ]),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Questionnaire → vector
 // ---------------------------------------------------------------------------

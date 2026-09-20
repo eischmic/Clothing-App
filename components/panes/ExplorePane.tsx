@@ -5,24 +5,25 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSharedValue } from 'react-native-reanimated';
 import { useTheme } from '@/theme/useTheme';
 import { useAppStore } from '@/store/useAppStore';
-import { selectActiveProfile, selectRejectedIds } from '@/store/selectors';
-import { ALL_PRODUCTS } from '@/lib/catalog/seeded';
+import { selectActiveProfile, selectCatalogFeed, selectRejectedIds } from '@/store/selectors';
 import {
   DECK_SLOT_ORDER,
   buildOutfit,
   outfitProducts,
-  outfitTotal,
   refillSlot,
+  shouldRefill,
   type DeckContext,
   type DeckOutfit,
+  type RefillState,
   type Slot,
 } from '@/lib/deck';
 import { EmptyState, PrimaryButton } from '@/components/primitives';
 import { GarmentSwipeCard } from '@/components/GarmentSwipeCard';
 import { StylePill } from '@/components/StylePill';
 
-const BUDGET_CENTER = 120;
 const MIN_ROW = 96;
+/** Feed size below which Explore re-fetches. Enough runway to keep shuffling. */
+const REFILL_THRESHOLD = 8;
 const MAX_ROW = 140;
 /** Dropped from display first when the rows cannot all fit. */
 const DROPPABLE: readonly Slot[] = ['knitwear', 'outerwear'];
@@ -33,10 +34,32 @@ export function ExplorePane({ onNavigateToPane }: { onNavigateToPane?: (index: n
   const profile = useAppStore(selectActiveProfile);
   const activeProfileId = useAppStore((s) => s.activeProfileId);
   const rejectedIds = useAppStore(selectRejectedIds);
+  const feed = useAppStore(selectCatalogFeed);
+  const catalogStatus = useAppStore((s) => s.catalog.status);
+  const loadFeed = useAppStore((s) => s.loadFeed);
   const toggleWishlist = useAppStore((s) => s.toggleWishlist);
   const rejectProduct = useAppStore((s) => s.rejectProduct);
   const clearRejections = useAppStore((s) => s.clearRejections);
   const saveOutfit = useAppStore((s) => s.saveOutfit);
+
+  // Fetch once per profile. `status` is the guard, so a re-render mid-flight
+  // does not fire a second request.
+  useEffect(() => {
+    if (catalogStatus === 'idle') void loadFeed();
+  }, [catalogStatus, loadFeed, activeProfileId]);
+
+  // The backend excludes already-swiped articles from /next, so the pool
+  // genuinely shrinks as the user swipes. Refill before it runs dry.
+  // Uses shouldRefill (a pure function) to avoid infinite small-pool requests:
+  // one refill is allowed per profile-and-swipe state, not per feed response.
+  const lastRefillStateRef = useRef<RefillState | null>(null);
+  useEffect(() => {
+    const refillState = { profileId: activeProfileId, rejectedIds };
+    if (shouldRefill(feed, lastRefillStateRef.current, refillState, catalogStatus, REFILL_THRESHOLD)) {
+      lastRefillStateRef.current = refillState;
+      void loadFeed();
+    }
+  }, [feed, activeProfileId, rejectedIds, catalogStatus, loadFeed]);
 
   const isCommitting = useSharedValue(false);
   const [deckHeight, setDeckHeight] = useState(0);
@@ -47,13 +70,12 @@ export function ExplorePane({ onNavigateToPane }: { onNavigateToPane?: (index: n
     () =>
       profile
         ? {
-            products: ALL_PRODUCTS,
+            products: feed,
             userVector: profile.vector,
             rejectedIds,
-            budgetCenter: BUDGET_CENTER,
           }
         : null,
-    [profile, rejectedIds],
+    [profile, rejectedIds, feed],
   );
 
   // Deliberately keyed on the profile id, not `ctx`: rejecting a product
@@ -64,7 +86,7 @@ export function ExplorePane({ onNavigateToPane }: { onNavigateToPane?: (index: n
   useEffect(() => {
     setOutfit(ctxRef.current ? buildOutfit(ctxRef.current) : null);
     isCommitting.value = false;
-  }, [activeProfileId, isCommitting]);
+  }, [activeProfileId, isCommitting, feed.length]);
 
   const visibleSlots = useMemo(() => {
     if (!outfit) return [];
@@ -157,9 +179,6 @@ export function ExplorePane({ onNavigateToPane }: { onNavigateToPane?: (index: n
               padding: spacing.md,
             }}
           >
-            <Text style={[type.title, { color: accent.bright, flex: 1 }]}>
-              ${outfitTotal(outfit)}
-            </Text>
             <PrimaryButton
               label={justSaved ? 'Saved' : 'Save outfit'}
               onPress={save}

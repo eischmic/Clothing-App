@@ -29,6 +29,16 @@ def _fake_image_bytes() -> bytes:
     return buf.getvalue()
 
 
+def _create_profile(client, name: str = "Test", n: int = 3) -> str:
+    r = client.post(
+        "/profiles",
+        data={"name": name},
+        files=[("files", (f"p{i}.jpg", _fake_image_bytes(), "image/jpeg")) for i in range(n)],
+    )
+    assert r.status_code == 200, r.text
+    return r.json()["profile_id"]
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("INDEX_DIR", str(BACKEND_DIR / "index"))
@@ -62,22 +72,21 @@ def client(tmp_path, monkeypatch):
         yield c
 
 
-def _create_profile(client, name="Jules", n_photos=5):
-    files = [("files", (f"ref{i}.jpg", _fake_image_bytes(), "image/jpeg")) for i in range(n_photos)]
-    resp = client.post("/profiles", data={"name": name}, files=files)
-    assert resp.status_code == 200, resp.text
-    return resp.json()
-
-
 def test_create_profile_returns_id_and_n_refs(client):
-    body = _create_profile(client, n_photos=6)
+    r = client.post(
+        "/profiles",
+        data={"name": "Jules"},
+        files=[("files", (f"ref{i}.jpg", _fake_image_bytes(), "image/jpeg")) for i in range(6)],
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
     assert body["name"] == "Jules"
     assert body["n_refs"] == 6
     assert body["profile_id"]
 
 
 def test_create_profile_rejects_too_few_or_too_many_photos(client):
-    for n in (1, 4, 16, 20):
+    for n in (1, 2, 16, 20):
         files = [("files", (f"r{i}.jpg", _fake_image_bytes(), "image/jpeg")) for i in range(n)]
         resp = client.post("/profiles", data={"name": "X"}, files=files)
         assert resp.status_code == 400, f"n={n} should be rejected"
@@ -90,11 +99,11 @@ def test_create_profile_rejects_unreadable_file(client):
 
 
 def test_list_profiles_shows_new_profile(client):
-    created = _create_profile(client)
+    profile_id = _create_profile(client)
     resp = client.get("/profiles")
     assert resp.status_code == 200
     ids = [p["profile_id"] for p in resp.json()]
-    assert created["profile_id"] in ids
+    assert profile_id in ids
 
 
 def test_unknown_profile_is_404(client):
@@ -104,10 +113,10 @@ def test_unknown_profile_is_404(client):
 
 
 def test_full_slice_profile_swipe_wardrobe(client):
-    profile_id = _create_profile(client)["profile_id"]
+    profile_id = _create_profile(client)
 
     detail = client.get(f"/profiles/{profile_id}").json()
-    assert detail["n_refs"] == 5
+    assert detail["n_refs"] == 3
     assert detail["n_swipes"] == 0
     assert detail["n_liked"] == 0
     assert isinstance(detail["style_breakdown"], dict) and detail["style_breakdown"]
@@ -133,15 +142,15 @@ def test_full_slice_profile_swipe_wardrobe(client):
 
     ward = client.get(f"/profiles/{profile_id}/wardrobe").json()
     assert {i["article_id"] for i in ward["liked"]} == set(swiped_ids)
-    assert len(ward["references"]) == 5
+    assert len(ward["references"]) == 3
     for ref in ward["references"]:
         img_resp = client.get(ref["image_url"].replace("http://testserver/", "/"))
         assert img_resp.status_code == 200
 
 
 def test_two_profiles_are_independent(client):
-    p1 = _create_profile(client, name="A", n_photos=5)["profile_id"]
-    p2 = _create_profile(client, name="B", n_photos=5)["profile_id"]
+    p1 = _create_profile(client, name="A")
+    p2 = _create_profile(client, name="B")
 
     items = client.get(f"/profiles/{p1}/next", params={"n": 5}).json()["items"]
     client.post(f"/profiles/{p1}/swipe", json={"article_id": items[0]["article_id"], "liked": True})
@@ -152,7 +161,7 @@ def test_two_profiles_are_independent(client):
 
 
 def test_restart_does_not_lose_profile(client, tmp_path, monkeypatch):
-    profile_id = _create_profile(client)["profile_id"]
+    profile_id = _create_profile(client)
     client.post(f"/profiles/{profile_id}/swipe", json={"article_id": "0721911002", "liked": True})
 
     import api
@@ -161,3 +170,125 @@ def test_restart_does_not_lose_profile(client, tmp_path, monkeypatch):
         detail = fresh_client.get(f"/profiles/{profile_id}").json()
         assert detail["n_swipes"] == 1
         assert detail["n_liked"] == 1
+
+
+# ---- new tests from task-7-brief ----
+
+def test_profile_items_carry_product_fields(client):
+    profile_id = _create_profile(client)
+    r = client.get(f"/profiles/{profile_id}/next", params={"n": 5})
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert len(items) == 5
+    for item in items:
+        assert item["category"] in {
+            "top", "bottom", "outerwear", "footwear", "knitwear", "accessory"
+        }
+        assert item["colour_family"] in {"neutral", "warm", "cool", "earth", "bold"}
+        assert 1 <= item["formality"] <= 5
+        assert item["seasons"] and set(item["seasons"]) <= {
+            "spring", "summer", "fall", "winter"
+        }
+        assert len(item["vector"]) == 9
+        assert all(0.0 <= v <= 1.0 for v in item["vector"])
+
+
+def test_profile_detail_carries_a_nine_dim_vector(client):
+    profile_id = _create_profile(client)
+    r = client.get(f"/profiles/{profile_id}")
+    assert r.status_code == 200
+    vector = r.json()["vector"]
+    assert len(vector) == 9
+    assert all(0.0 <= v <= 1.0 for v in vector)
+    # An all-zeros vector would satisfy the range check above while meaning the
+    # projection never ran. Percentile ranks against a real catalog cannot all
+    # collapse to the floor.
+    assert any(v > 0.0 for v in vector)
+
+
+def test_create_profile_returns_reference_urls(client):
+    r = client.post(
+        "/profiles",
+        data={"name": "Ref test"},
+        files=[("files", (f"p{i}.jpg", _fake_image_bytes(), "image/jpeg")) for i in range(3)],
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["n_refs"] == 3
+    assert len(body["references"]) == 3
+    for ref in body["references"]:
+        assert ref["ref_id"]
+        assert ref["image_url"].startswith("http")
+        assert "/references/" in ref["image_url"]
+
+
+def test_three_photos_is_accepted(client):
+    r = client.post(
+        "/profiles",
+        data={"name": "Three"},
+        files=[("files", (f"p{i}.jpg", _fake_image_bytes(), "image/jpeg")) for i in range(3)],
+    )
+    assert r.status_code == 200
+
+
+def test_two_photos_is_rejected(client):
+    r = client.post(
+        "/profiles",
+        data={"name": "Two"},
+        files=[("files", (f"p{i}.jpg", _fake_image_bytes(), "image/jpeg")) for i in range(2)],
+    )
+    assert r.status_code == 400
+
+
+def test_catalog_item_lookup_returns_a_profile_item(client):
+    profile_id = _create_profile(client)
+    first = client.get(f"/profiles/{profile_id}/next", params={"n": 1}).json()["items"][0]
+
+    r = client.get(f"/catalog/{first['article_id']}")
+    assert r.status_code == 200
+    assert r.json()["article_id"] == first["article_id"]
+    assert r.json()["category"] == first["category"]
+    assert r.json()["vector"] == first["vector"]
+
+
+def test_catalog_item_lookup_404s_on_unknown_id(client):
+    assert client.get("/catalog/0000000000").status_code == 404
+
+
+def test_catalog_item_lookup_404s_on_a_non_recommendable_article(client):
+    # Dresses, underwear, swimwear and homeware are excluded because the outfit
+    # graph has no slot for them. Their ids ARE in the catalog, so the lookup
+    # finds a row -- but that row has no category, and serving it used to
+    # relabel it "top", handing the client a Dress to wear in its top slot.
+    eng = client.app.state.engine
+    excluded = eng.catalog.loc[~eng.catalog["recommendable"], "article_id"].iloc[0]
+    assert client.get(f"/catalog/{excluded}").status_code == 404
+
+
+def test_swipe_rejects_an_article_that_can_never_be_rendered(client):
+    # A swipe the wardrobe could not serve back must not be storable in the
+    # first place: /wardrobe would have to either 500 on the row or quietly
+    # drop a garment the user said they liked.
+    profile_id = _create_profile(client)
+    eng = client.app.state.engine
+    excluded = eng.catalog.loc[~eng.catalog["recommendable"], "article_id"].iloc[0]
+
+    for bad in (excluded, "0000000000"):
+        r = client.post(f"/profiles/{profile_id}/swipe",
+                        json={"article_id": bad, "liked": True})
+        assert r.status_code == 404, bad
+
+    assert client.get(f"/profiles/{profile_id}").json()["n_swipes"] == 0
+
+
+def test_sessions_endpoints_are_gone(client):
+    assert client.post("/sessions/from-photos").status_code == 404
+    assert client.get("/sessions/abc").status_code == 404
+    assert client.get("/sessions/abc/recommendations").status_code == 404
+    assert client.post("/sessions/abc/feedback", json={}).status_code == 404
+
+
+def test_health_reports_profiles_not_sessions(client):
+    body = client.get("/health").json()
+    assert "sessions" not in body
+    assert "profiles" in body
