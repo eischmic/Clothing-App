@@ -2,14 +2,17 @@ import React, { useEffect, useState } from 'react';
 import { Redirect, Stack, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { useAppStore } from '@/store/useAppStore';
+import { selectActiveProfile } from '@/store/selectors';
 import { BASE } from '@/theme/tokens';
 
 function RootLayoutInner() {
   const hydrated     = useAppStore((s) => s.hydrated);
   const themeMode    = useAppStore((s) => s.themeMode);
-  const styleProfile = useAppStore((s) => s.styleProfile);
+  const styleProfile = useAppStore(selectActiveProfile);
+  const profileCount = useAppStore((s) => s.profiles.length);
   const setThemeMode = useAppStore((s) => s.setThemeMode);
   const segments = useSegments();
 
@@ -32,7 +35,7 @@ function RootLayoutInner() {
     );
   }
 
-  if (styleProfile === null && segments[0] !== 'onboarding') return <Redirect href="/onboarding" />;
+  if (profileCount === 0 && segments[0] !== 'onboarding') return <Redirect href="/onboarding" />;
 
   const profileVibe = styleProfile?.vibe ?? null;
 
@@ -49,5 +52,12 @@ function RootLayoutInner() {
 }
 
 export default function RootLayout() {
-  return <RootLayoutInner />;
+  // Wraps the placeholder branch too, so the root view's layout does not shift
+  // when hydration flips. gesture-handler is a dependency but was never mounted,
+  // which left every pan gesture in the app silently inert.
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <RootLayoutInner />
+    </GestureHandlerRootView>
+  );
 }

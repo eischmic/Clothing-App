@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '@/theme/useTheme';
 import { useAppStore } from '@/store/useAppStore';
+import { selectActiveProfile, selectQuestionnaire, selectWishlistIds } from '@/store/selectors';
 import {
   Chip,
   EmptyState,
@@ -29,14 +30,14 @@ const SLIDERS: Array<[SliderKey, string, string]> = [
 
 export function ProfilePane() {
   const { base, accent, type, spacing, mode, setMode } = useTheme();
-  const styleProfile = useAppStore((s) => s.styleProfile);
-  const questionnaire = useAppStore((s) => s.questionnaire);
+  const styleProfile = useAppStore(selectActiveProfile);
+  const questionnaire = useAppStore(selectQuestionnaire);
   const setSliders = useAppStore((s) => s.setSliders);
   const toggleWord = useAppStore((s) => s.toggleWord);
   const setProfile = useAppStore((s) => s.setStyleProfile);
-  const reset = useAppStore((s) => s.resetOnboarding);
+  const beginDraft = useAppStore((s) => s.beginDraft);
   const loadDemo = useAppStore((s) => s.loadDemoData);
-  const saved = useAppStore((s) => s.savedProductIds);
+  const saved = useAppStore(selectWishlistIds);
 
   const updateSlider = (key: SliderKey, value: number) => {
     const sliders = { ...questionnaire.sliders, [key]: value };
@@ -143,11 +144,11 @@ export function ProfilePane() {
         )}
 
         <PrimaryButton
-          label="Redo onboarding"
+          label="+ New profile"
           variant="ghost"
           onPress={() => {
-            reset();
-            router.replace('/onboarding' as never);
+            beginDraft('New style');
+            router.push('/onboarding' as never);
           }}
           style={{ marginTop: spacing.xl }}
         />

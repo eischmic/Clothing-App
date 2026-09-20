@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '@/theme/useTheme';
 import { useAppStore } from '@/store/useAppStore';
+import { selectActiveProfile, selectWardrobe } from '@/store/selectors';
 import { analyzeGaps, categoryCoverage, colorBalance, formalitySpread } from '@/lib/gaps';
 import { buildEdges, countOutfits, enumerateOutfits } from '@/lib/outfits';
 import { ALL_PRODUCTS } from '@/lib/catalog/seeded';
@@ -29,8 +30,8 @@ const FORMALITY_LABELS = ['Athleisure', 'Casual', 'Smart', 'Dressy', 'Formal'] a
 
 export function ClosetPane() {
   const { base, accent, type, spacing, radii } = useTheme();
-  const wardrobeItems = useAppStore((s) => s.wardrobeItems);
-  const profile = useAppStore((s) => s.styleProfile);
+  const wardrobeItems = useAppStore(selectWardrobe);
+  const profile = useAppStore(selectActiveProfile);
   const remove = useAppStore((s) => s.removeWardrobeItem);
   const addWardrobeItems = useAppStore((s) => s.addWardrobeItems);
   const [adding, setAdding] = useState(false);

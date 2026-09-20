@@ -5,6 +5,7 @@ import { GarmentArt } from '@/components/GarmentArt';
 import { ScoreRing, Surface } from '@/components/primitives';
 import { useTheme } from '@/theme/useTheme';
 import { useAppStore } from '@/store/useAppStore';
+import { selectWishlistIds } from '@/store/selectors';
 
 export function ProductCard({
   recommendation,
@@ -15,8 +16,8 @@ export function ProductCard({
 }) {
   const { product } = recommendation;
   const { base, accent, spacing, type } = useTheme();
-  const saved = useAppStore((s) => s.savedProductIds.includes(product.id));
-  const toggle = useAppStore((s) => s.toggleSaved);
+  const saved = useAppStore((s) => selectWishlistIds(s).includes(product.id));
+  const toggle = useAppStore((s) => s.toggleWishlist);
 
   return (
     <Surface level={2} style={{ marginBottom: spacing.sm }}>
