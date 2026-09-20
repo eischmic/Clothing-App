@@ -103,6 +103,14 @@ def test_derive_formality_maps_known_types(ptype, expected):
     assert derive.derive_formality(ptype) == expected
 
 
+def test_tracksuit_is_formality_one():
+    assert derive.derive_formality("Tracksuit bottoms") == 1
+
+
+def test_swimsuit_is_formality_one():
+    assert derive.derive_formality("Swimsuit") == 1
+
+
 def test_unknown_type_defaults_to_three():
     assert derive.derive_formality("Widget") == 3
     assert derive.derive_formality("") == 3
@@ -140,3 +148,24 @@ def test_product_type_contributes_keywords():
 def test_seasons_handles_missing_description():
     assert derive.derive_seasons(None, "Coat") == ["fall", "winter"]
     assert derive.derive_seasons(None, None) == ["spring", "summer", "fall", "winter"]
+
+
+def test_coated_description_does_not_trigger_cold():
+    # "coated" in desc should not be mistaken for the garment type "coat"
+    assert derive.derive_seasons("Water-resistant coated shell.", "Jacket") == [
+        "spring", "summer", "fall", "winter"
+    ]
+
+
+def test_bootcut_description_does_not_trigger_cold():
+    # "bootcut" in desc should not be mistaken for the garment type "boot"
+    assert derive.derive_seasons("Bootcut leg.", "Jeans") == [
+        "spring", "summer", "fall", "winter"
+    ]
+
+
+def test_button_down_description_does_not_trigger_cold():
+    # "down" in "button-down" must not trigger the down-jacket cold signal
+    assert derive.derive_seasons("Shirt with a button-down collar.", "Shirt") == [
+        "spring", "summer", "fall", "winter"
+    ]

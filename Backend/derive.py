@@ -116,15 +116,19 @@ _FORMALITY_TOKENS: list[tuple[int, tuple[str, ...]]] = [
     (4, ("blazer", "skirt", "coat", "heel", "dress shirt", "loafer", "oxford")),
     (3, ("shirt", "chino", "sweater", "cardigan", "boot", "trousers", "knit")),
     (2, ("t-shirt", "tee", "jeans", "sneaker", "shorts", "hoodie", "denim", "cap")),
-    (1, ("sport", "athletic", "legging", "sweatpant", "track", "jogger", "gym")),
+    (1, ("sport", "athletic", "legging", "sweatpant", "track", "jogger", "gym",
+         "tracksuit", "swimsuit")),
 ]
 
 # Flatten and sort by length (longest first) for matching specificity
-_FORMALITY_FLAT = []
-for level, tokens in _FORMALITY_TOKENS:
-    for token in tokens:
-        _FORMALITY_FLAT.append((len(token), level, token))
-_FORMALITY_FLAT.sort(reverse=True)
+_FORMALITY_FLAT = tuple(
+    sorted(
+        ((len(token), level, token)
+         for level, tokens in _FORMALITY_TOKENS
+         for token in tokens),
+        reverse=True,
+    )
+)
 
 
 def derive_formality(product_type_name: str | None) -> int:
@@ -139,15 +143,17 @@ def derive_formality(product_type_name: str | None) -> int:
 # ------------------------------------------------------------------- seasons
 
 _COLD_TOKENS = (
-    "wool", "padded", "fleece", "knit", "thermal", "quilted", "down",
-    "faux fur", "corduroy", "flannel", "cashmere", "boot", "coat",
+    "wool", "padded", "fleece", "knit", "thermal", "quilted",
+    "down jacket", "down-filled",
+    "faux fur", "corduroy", "flannel", "cashmere",
 )
+_COLD_TYPE_TOKENS = ("coat", "boot", "parka", "anorak")
 _WARM_TOKENS = (
     "linen", "shorts", "swim", "sleeveless", "sandal", "tank",
     "lightweight", "mesh", "crochet",
 )
 
-_ALL_SEASONS = ["spring", "summer", "fall", "winter"]
+_ALL_SEASONS = ("spring", "summer", "fall", "winter")
 
 
 def derive_seasons(detail_desc: str | None,
@@ -159,7 +165,11 @@ def derive_seasons(detail_desc: str | None,
     missing description is far more likely than a genuinely seasonless garment.
     """
     text = f"{detail_desc or ''} {product_type_name or ''}".lower()
-    cold = any(t in text for t in _COLD_TOKENS)
+    ptype = (product_type_name or "").lower()
+    cold = (
+        any(t in text for t in _COLD_TOKENS)
+        or any(t in ptype for t in _COLD_TYPE_TOKENS)
+    )
     warm = any(t in text for t in _WARM_TOKENS)
 
     if cold and not warm:
