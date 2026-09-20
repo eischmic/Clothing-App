@@ -1,0 +1,14 @@
+{
+  "article_id": "0108775015",
+  "name": "Strap top",
+  "product_type": "Vest top",
+  "colour": "Black",
+  "description": "Jersey top with narrow shoulder straps.",
+  "image_url": "http://localhost:8000/thumbs/010/0108775015.jpg",
+  "buy_url": "https://www2.hm.com/en_us/productpage.0108775015.html",
+  "category": "top",
+  "colour_family": "neutral",
+  "formality": 2,
+  "seasons": ["spring", "summer"],
+  "vector": [0.81, 0.34, 0.12, 0.05, 0.22, 0.18, 0.09, 0.11, 0.64]
+}
