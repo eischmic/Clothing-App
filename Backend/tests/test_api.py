@@ -1,0 +1,163 @@
+"""
+End-to-end test of the /profiles contract against the REAL catalog
+(index/catalog.parquet + embeddings.npy), with only the torch-dependent
+FashionCLIP calls (embed_images / embed_texts) stubbed out -- so this runs
+without installing torch/transformers or downloading the model.
+
+Requires: fastapi, python-multipart, pyarrow (see requirements-api.txt).
+Run with: python3 -m pytest tests/test_api.py -v
+"""
+import importlib
+import io
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+from fastapi.testclient import TestClient
+from PIL import Image
+
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BACKEND_DIR))
+
+EMB_DIM = 512
+
+
+def _fake_image_bytes() -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (32, 32), color=(120, 60, 200)).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("INDEX_DIR", str(BACKEND_DIR / "index"))
+    monkeypatch.setenv("THUMBS_DIR", str(BACKEND_DIR / "thumbs"))
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("REFS_DIR", str(tmp_path / "refs"))
+
+    import engine
+    # Skip the real FashionCLIP model (torch/transformers not installed here);
+    # everything downstream of an embedding (build_profile, feedback_update,
+    # recommend) is pure numpy and runs against the real catalog untouched.
+    monkeypatch.setattr(engine.StyleEngine, "_load_model", lambda self: None)
+    monkeypatch.setattr(
+        engine.StyleEngine,
+        "embed_images",
+        lambda self, images: engine._normalize(
+            np.random.default_rng(0).normal(size=(len(images), EMB_DIM)).astype(np.float32)
+        ),
+    )
+    monkeypatch.setattr(
+        engine.StyleEngine,
+        "embed_texts",
+        lambda self, texts: engine._normalize(
+            np.random.default_rng(1).normal(size=(len(list(texts)), EMB_DIM)).astype(np.float32)
+        ),
+    )
+
+    import api
+    importlib.reload(api)  # re-run module-level setup (DB, mounts) under patched env
+    with TestClient(api.app) as c:
+        yield c
+
+
+def _create_profile(client, name="Jules", n_photos=5):
+    files = [("files", (f"ref{i}.jpg", _fake_image_bytes(), "image/jpeg")) for i in range(n_photos)]
+    resp = client.post("/profiles", data={"name": name}, files=files)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_create_profile_returns_id_and_n_refs(client):
+    body = _create_profile(client, n_photos=6)
+    assert body["name"] == "Jules"
+    assert body["n_refs"] == 6
+    assert body["profile_id"]
+
+
+def test_create_profile_rejects_too_few_or_too_many_photos(client):
+    for n in (1, 4, 16, 20):
+        files = [("files", (f"r{i}.jpg", _fake_image_bytes(), "image/jpeg")) for i in range(n)]
+        resp = client.post("/profiles", data={"name": "X"}, files=files)
+        assert resp.status_code == 400, f"n={n} should be rejected"
+
+
+def test_create_profile_rejects_unreadable_file(client):
+    files = [("files", ("bad.jpg", b"not an image", "image/jpeg"))] * 5
+    resp = client.post("/profiles", data={"name": "X"}, files=files)
+    assert resp.status_code == 400
+
+
+def test_list_profiles_shows_new_profile(client):
+    created = _create_profile(client)
+    resp = client.get("/profiles")
+    assert resp.status_code == 200
+    ids = [p["profile_id"] for p in resp.json()]
+    assert created["profile_id"] in ids
+
+
+def test_unknown_profile_is_404(client):
+    for path in ("/profiles/doesnotexist", "/profiles/doesnotexist/next", "/profiles/doesnotexist/wardrobe"):
+        assert client.get(path).status_code == 404
+    assert client.post("/profiles/doesnotexist/swipe", json={"article_id": "x", "liked": True}).status_code == 404
+
+
+def test_full_slice_profile_swipe_wardrobe(client):
+    profile_id = _create_profile(client)["profile_id"]
+
+    detail = client.get(f"/profiles/{profile_id}").json()
+    assert detail["n_refs"] == 5
+    assert detail["n_swipes"] == 0
+    assert detail["n_liked"] == 0
+    assert isinstance(detail["style_breakdown"], dict) and detail["style_breakdown"]
+
+    next_resp = client.get(f"/profiles/{profile_id}/next", params={"n": 10})
+    assert next_resp.status_code == 200
+    items = next_resp.json()["items"]
+    assert 1 <= len(items) <= 10
+    first = items[0]
+    for key in ("article_id", "image_url", "buy_url"):
+        assert first[key]
+
+    swiped_ids = []
+    for item in items[:3]:
+        r = client.post(f"/profiles/{profile_id}/swipe", json={"article_id": item["article_id"], "liked": True})
+        assert r.status_code == 200
+        swiped_ids.append(item["article_id"])
+    assert r.json()["n_swipes"] == 3
+
+    # swiped items never come back
+    next_again = client.get(f"/profiles/{profile_id}/next", params={"n": 50}).json()["items"]
+    assert not (set(i["article_id"] for i in next_again) & set(swiped_ids))
+
+    ward = client.get(f"/profiles/{profile_id}/wardrobe").json()
+    assert {i["article_id"] for i in ward["liked"]} == set(swiped_ids)
+    assert len(ward["references"]) == 5
+    for ref in ward["references"]:
+        img_resp = client.get(ref["image_url"].replace("http://testserver/", "/"))
+        assert img_resp.status_code == 200
+
+
+def test_two_profiles_are_independent(client):
+    p1 = _create_profile(client, name="A", n_photos=5)["profile_id"]
+    p2 = _create_profile(client, name="B", n_photos=5)["profile_id"]
+
+    items = client.get(f"/profiles/{p1}/next", params={"n": 5}).json()["items"]
+    client.post(f"/profiles/{p1}/swipe", json={"article_id": items[0]["article_id"], "liked": True})
+
+    assert client.get(f"/profiles/{p1}").json()["n_swipes"] == 1
+    assert client.get(f"/profiles/{p2}").json()["n_swipes"] == 0
+    assert client.get(f"/profiles/{p2}/wardrobe").json()["liked"] == []
+
+
+def test_restart_does_not_lose_profile(client, tmp_path, monkeypatch):
+    profile_id = _create_profile(client)["profile_id"]
+    client.post(f"/profiles/{profile_id}/swipe", json={"article_id": "0721911002", "liked": True})
+
+    import api
+    importlib.reload(api)  # simulate a fresh process against the same DB_PATH/REFS_DIR
+    with TestClient(api.app) as fresh_client:
+        detail = fresh_client.get(f"/profiles/{profile_id}").json()
+        assert detail["n_swipes"] == 1
+        assert detail["n_liked"] == 1
