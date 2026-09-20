@@ -7,6 +7,7 @@ import type { StateStorage } from 'zustand/middleware';
 
 import type {
   InspoImage,
+  Product,
   ProfileDraft,
   ProfileRecord,
   SliderKey,
@@ -24,12 +25,25 @@ import {
   withProductRejected,
   withWishlistToggled,
 } from '@/lib/profileRecords';
-import { migrateV1ToV2 } from '@/lib/stateMigration';
-import type { PersistedStateV1 } from '@/lib/stateMigration';
+import { activeProvider, FALLBACK_PRODUCTS } from '@/lib/catalog/index';
+import { getCatalogItem } from '@/lib/backend';
+import { mapProfileItemToProduct } from '@/lib/catalog/backendMapper';
+import { migrateV1ToV2, migrateV2ToV3 } from '@/lib/stateMigration';
+import type { PersistedStateV1, PersistedStateV2 } from '@/lib/stateMigration';
 
 // ---- State ----
 
 type ThemeMode = 'auto' | VibeName;
+
+export interface CatalogSlice {
+  /** Current ranked pool. NOT persisted — it is profile-specific and live. */
+  feed:   Product[];
+  /** Every product ever resolved. PERSISTED: ids alone are insufficient state
+   *  against a remote catalog, so a cold start with the backend down would
+   *  otherwise empty the user's closet. */
+  byId:   Record<string, Product>;
+  status: 'idle' | 'loading' | 'ready' | 'degraded';
+}
 
 export interface AppState {
   profiles:        ProfileRecord[];
@@ -37,6 +51,7 @@ export interface AppState {
   draft:           ProfileDraft | null;
   themeMode:       ThemeMode;
   hydrated:        boolean;
+  catalog:         CatalogSlice;
 }
 
 // ---- Actions ----
@@ -65,9 +80,13 @@ export interface AppActions {
   saveOutfit:        (productIds: string[]) => void;
   removeSavedOutfit: (id: string) => void;
 
-  setThemeMode:      (mode: ThemeMode) => void;
-  resetEverything:   () => void;
-  loadDemoData:      () => void;
+  setThemeMode:        (mode: ThemeMode) => void;
+  resetEverything:     () => void;
+  loadDemoData:        () => void;
+
+  setBackendProfileId: (profileId: string, backendProfileId: string | null) => void;
+  loadFeed:            () => Promise<void>;
+  resolveProducts:     (ids: string[]) => Promise<void>;
 }
 
 export type AppStore = AppState & AppActions;
@@ -126,6 +145,19 @@ function mutateDraftOrActive(
   return mutateActive(s, onRecord);
 }
 
+// ---- Helpers ----
+
+/** Adds products to `byId` without dropping anything already cached. */
+function mergeById(
+  byId: Record<string, Product>,
+  products: Product[],
+): Record<string, Product> {
+  if (products.length === 0) return byId;
+  const next = { ...byId };
+  for (const p of products) next[p.id] = p;
+  return next;
+}
+
 // ---- Store ----
 
 const initialState: AppState = {
@@ -134,6 +166,7 @@ const initialState: AppState = {
   draft:           null,
   themeMode:       'auto',
   hydrated:        false,
+  catalog:         { feed: [], byId: {}, status: 'idle' },
 };
 
 export const useAppStore = create<AppStore>()(
@@ -283,7 +316,7 @@ export const useAppStore = create<AppStore>()(
       setThemeMode: (mode) => set({ themeMode: mode }),
 
       resetEverything: () =>
-        set({ profiles: [], activeProfileId: null, draft: null, themeMode: 'auto' }),
+        set({ profiles: [], activeProfileId: null, draft: null, themeMode: 'auto', catalog: { feed: [], byId: {}, status: 'idle' } }),
 
       loadDemoData: () =>
         set((s) => {
@@ -298,6 +331,7 @@ export const useAppStore = create<AppStore>()(
             wishlistIds: [],
             rejectedIds: [],
             savedOutfits: [],
+            backendProfileId: null,
             createdAt: now,
             updatedAt: now,
           };
@@ -308,21 +342,96 @@ export const useAppStore = create<AppStore>()(
             draft: null,
           };
         }),
+
+      setBackendProfileId: (profileId, backendProfileId) =>
+        set((s) => ({
+          profiles: s.profiles.map((p) =>
+            p.id === profileId ? { ...p, backendProfileId } : p,
+          ),
+        })),
+
+      loadFeed: async () => {
+        const state = get();
+        const record = state.profiles.find((p) => p.id === state.activeProfileId);
+        set((s) => ({ catalog: { ...s.catalog, status: 'loading' } }));
+
+        const products = await activeProvider(record?.backendProfileId ?? null).all();
+
+        // An empty pool is a degraded backend, not a real empty catalogue:
+        // fall back so the deck keeps working rather than showing nothing.
+        if (products.length === 0) {
+          set((s) => ({
+            catalog: {
+              feed:   FALLBACK_PRODUCTS,
+              byId:   mergeById(s.catalog.byId, FALLBACK_PRODUCTS),
+              status: 'degraded',
+            },
+          }));
+          return;
+        }
+
+        set((s) => ({
+          catalog: {
+            feed:   products,
+            byId:   mergeById(s.catalog.byId, products),
+            status: 'ready',
+          },
+        }));
+      },
+
+      resolveProducts: async (ids) => {
+        const { catalog } = get();
+        const missing = ids.filter((id) => !catalog.byId[id]);
+        if (missing.length === 0) return;
+
+        const resolved = await Promise.all(
+          missing.map(async (id) => {
+            const { item } = await getCatalogItem(id);
+            return item ? mapProfileItemToProduct(item) : null;
+          }),
+        );
+
+        const found = resolved.filter((p): p is Product => p !== null);
+        if (found.length === 0) return;
+        set((s) => ({ catalog: { ...s.catalog, byId: mergeById(s.catalog.byId, found) } }));
+      },
     }),
     {
       name: 'fitlab-store',
-      version: 2,
-      migrate: (persisted, version) =>
-        (version < 2
-          ? migrateV1ToV2(persisted as PersistedStateV1)
-          : persisted) as unknown as AppStore,
+      version: 3,
+      migrate: (persisted, version) => {
+        let state = persisted as unknown;
+        if (version < 2) state = migrateV1ToV2(state as PersistedStateV1);
+        if (version < 3) state = migrateV2ToV3(state as PersistedStateV2);
+        return state as AppStore;
+      },
       storage: createJSONStorage(buildStorage),
       partialize: (state) => ({
         profiles:        state.profiles,
         activeProfileId: state.activeProfileId,
         draft:           state.draft,
         themeMode:       state.themeMode,
+        // Only `byId`. `feed` is a live ranked slice and `status` describes the
+        // current session, so neither survives a restart.
+        catalog:         { byId: state.catalog.byId },
       }),
+      // Default merge is a shallow spread, which would replace the whole
+      // `catalog` object with the partialized `{ byId }` and leave `feed` and
+      // `status` undefined. Merge the slice explicitly.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<AppStore> & {
+          catalog?: { byId?: Record<string, Product> };
+        };
+        return {
+          ...current,
+          ...p,
+          catalog: {
+            feed:   current.catalog.feed,
+            status: current.catalog.status,
+            byId:   p.catalog?.byId ?? current.catalog.byId,
+          },
+        } as AppStore;
+      },
       onRehydrateStorage: () => (_state, _error) => {
         // Mark hydration complete once AsyncStorage rehydration finishes (or errors).
         useAppStore.setState({ hydrated: true });

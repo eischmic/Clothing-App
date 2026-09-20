@@ -2,6 +2,7 @@
 
 import type {
   InspoImage,
+  Product,
   ProfileRecord,
   Questionnaire,
   SavedOutfit,
@@ -56,4 +57,19 @@ export function selectRejectedIds(s: AppState): string[] {
 
 export function selectSavedOutfits(s: AppState): SavedOutfit[] {
   return selectActiveRecord(s)?.savedOutfits ?? EMPTY_OUTFITS;
+}
+
+const EMPTY_FEED = Object.freeze([]) as unknown as Product[];
+const EMPTY_BY_ID = Object.freeze({}) as unknown as Record<string, Product>;
+
+export function selectCatalogFeed(s: AppState): Product[] {
+  return s.catalog?.feed ?? EMPTY_FEED;
+}
+
+export function selectCatalogById(s: AppState): Record<string, Product> {
+  return s.catalog?.byId ?? EMPTY_BY_ID;
+}
+
+export function selectBackendProfileId(s: AppState): string | null {
+  return selectActiveRecord(s)?.backendProfileId ?? null;
 }

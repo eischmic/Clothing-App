@@ -153,6 +153,8 @@ export interface ProfileRecord {
   wishlistIds: string[];
   rejectedIds: string[];
   savedOutfits: SavedOutfit[];
+  /** `null` for profiles created before the backend existed, or while it was down. */
+  backendProfileId: string | null;
   createdAt: string;
   updatedAt: string;
 }
