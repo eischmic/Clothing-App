@@ -73,7 +73,7 @@ class StyleEngine:
         # Sidecar (built by build_style_index.py). A LEFT join on a de-duplicated
         # right side cannot add or reorder rows, so `self.emb` stays positionally
         # aligned with `self.catalog` -- which recommend() depends on absolutely.
-        self.style = self._load_sidecar(index_dir)
+        self.catalog, self.style = self._join_sidecar(index_dir)
         self.axis_quantiles = np.load(index_dir / "axis_quantiles.npy")
         assert self.axis_quantiles.shape == (len(axes.STYLE_DIMENSIONS), axes.N_BREAKPOINTS)
 
@@ -83,7 +83,13 @@ class StyleEngine:
         if load_model:
             self._load_model()
 
-    def _load_sidecar(self, index_dir: Path) -> pd.DataFrame:
+    def _join_sidecar(self, index_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Returns (catalog + sidecar columns, sidecar-only projection).
+
+        Returns both rather than assigning self.catalog here: the caller needs
+        to see that the primary catalog attribute is being replaced, not have it
+        mutated out of sight inside something named "load".
+        """
         style = pd.read_parquet(index_dir / "style.parquet")
         style = style.drop_duplicates(subset="article_id", keep="first")
 
@@ -94,6 +100,18 @@ class StyleEngine:
         # A row missing from the sidecar is not recommendable: we have no vector
         # for it, so it can never be ranked or mapped to a Product.
         merged["recommendable"] = merged["recommendable"].fillna(False).astype(bool)
+
+        # The fills below only ever apply to rows the sidecar did not cover,
+        # which the line above has already made unrecommendable -- so their
+        # values are never read. A row that IS recommendable but has holes in it
+        # means the sidecar itself is malformed, and filling that in would hand
+        # the user a neutral-grey size-3 garment scored 0.5 on every axis while
+        # looking perfectly healthy. Fail instead.
+        graded = merged.loc[merged["recommendable"]]
+        holes = [c for c in ("category", "colour_family", "formality", "seasons",
+                             *axes.STYLE_DIMENSIONS) if graded[c].isna().any()]
+        assert not holes, f"sidecar has recommendable rows with null {holes}"
+
         merged["category"] = merged["category"].fillna("")
         merged["colour_family"] = merged["colour_family"].fillna("neutral")
         merged["formality"] = merged["formality"].fillna(3).astype(int)
@@ -101,10 +119,9 @@ class StyleEngine:
         for dim in axes.STYLE_DIMENSIONS:
             merged[dim] = merged[dim].fillna(0.5).astype(np.float32)
 
-        self.catalog = merged
         cols = ["article_id", "category", "colour_family", "formality",
                 "seasons", "recommendable", *axes.STYLE_DIMENSIONS]
-        return merged[cols]
+        return merged, merged[cols]
 
     # ------------------------------------------------------------------ model
     def _load_model(self):
@@ -209,16 +226,22 @@ class StyleEngine:
         return out.reset_index(drop=True)
 
     # -------------------------------------------------------------- explain
-    def style_breakdown(self, profile: np.ndarray, axes=STYLE_AXES,
+    def style_breakdown(self, profile: np.ndarray, style_axes=STYLE_AXES,
                         temperature: float = 100.0) -> dict:
         """Relative score of the profile on each text-defined style axis (sums to 1
-        across the axes you pass in; tune `temperature` to spread or sharpen)."""
-        text = self.embed_texts([f"a photo of {a} style clothing" for a in axes])
+        across the axes you pass in; tune `temperature` to spread or sharpen).
+
+        Note: this is the older free-text breakdown, distinct from the 9-dim
+        project_profile() the frontend consumes. The parameter is `style_axes`
+        rather than `axes` so it cannot shadow the `axes` module, which
+        project_profile() and _axis_prompt_vectors() both reach for.
+        """
+        text = self.embed_texts([f"a photo of {a} style clothing" for a in style_axes])
         v = _normalize(np.atleast_2d(profile).mean(0))
         sims = text @ v
         z = temperature * (sims - sims.max())
         p = np.exp(z) / np.exp(z).sum()
-        return dict(sorted(zip(axes, p.tolist()), key=lambda kv: -kv[1]))
+        return dict(sorted(zip(style_axes, p.tolist()), key=lambda kv: -kv[1]))
 
     def _axis_prompt_vectors(self) -> np.ndarray:
         """[18, d] prompt embeddings in axes.prompt_texts() order. Embedded once

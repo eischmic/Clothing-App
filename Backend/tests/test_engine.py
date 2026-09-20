@@ -90,3 +90,29 @@ def test_project_profile_caches_the_prompt_embeddings(eng, monkeypatch):
     eng.project_profile(profile)
     eng.project_profile(profile)
     assert calls["n"] == 1, "prompt embeddings must be embedded once and cached"
+
+
+def test_style_breakdown_keys_are_the_axes_it_was_given(eng):
+    # Guards the `axes` module-vs-parameter shadowing hazard: style_breakdown
+    # takes a list of axis names, while the rest of the class reaches for the
+    # `axes` MODULE. If the two ever get confused, the returned keys stop being
+    # the names the caller passed -- which nothing else in the suite notices,
+    # because every other assertion only checks that the dict is non-empty.
+    names = ["alpha", "beta", "gamma"]
+    out = eng.style_breakdown(
+        engine._normalize(np.random.default_rng(11).normal(size=(1, EMB_DIM)).astype(np.float32)),
+        style_axes=names,
+    )
+    assert set(out) == set(names)
+    assert abs(sum(out.values()) - 1.0) < 1e-5
+
+
+def test_recommend_survives_an_empty_candidate_set(eng):
+    # Every recommendable row filtered out must return an empty frame, not blow
+    # up: exclude_ids grows without bound as the user swipes, and a category
+    # filter on top of it can legitimately exhaust the pool.
+    profile = engine._normalize(
+        np.random.default_rng(12).normal(size=(1, EMB_DIM)).astype(np.float32)
+    )
+    out = eng.recommend(profile, n=5, groups=["NoSuchProductGroup"])
+    assert len(out) == 0
