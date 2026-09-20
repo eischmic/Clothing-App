@@ -84,7 +84,8 @@ class StyleEngine:
                for i in images]
         inputs = self._processor(images=pil, return_tensors="pt").to(self._device)
         with torch.inference_mode():
-            feats = self._model.get_image_features(**inputs)
+            out = self._model.get_image_features(**inputs)
+        feats = out.pooler_output if hasattr(out, "pooler_output") else out
         return _normalize(feats.float().cpu().numpy())
 
     def embed_texts(self, texts) -> np.ndarray:
@@ -93,7 +94,8 @@ class StyleEngine:
         inputs = self._processor(text=list(texts), return_tensors="pt", padding=True,
                                  truncation=True).to(self._device)
         with torch.inference_mode():
-            feats = self._model.get_text_features(**inputs)
+            out = self._model.get_text_features(**inputs)
+        feats = out.pooler_output if hasattr(out, "pooler_output") else out
         return _normalize(feats.float().cpu().numpy())
 
     # --------------------------------------------------------------- profiles
