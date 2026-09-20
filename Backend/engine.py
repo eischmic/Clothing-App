@@ -22,6 +22,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import axes
+
 MODEL_NAME = "patrickjohncyh/fashion-clip"
 
 STYLE_AXES = [
@@ -67,10 +69,42 @@ class StyleEngine:
         self.emb = np.load(index_dir / "embeddings.npy")            # [N, d], L2-normalized
         self.catalog = pd.read_parquet(index_dir / "catalog.parquet")
         assert len(self.emb) == len(self.catalog), "index files are out of sync"
+
+        # Sidecar (built by build_style_index.py). A LEFT join on a de-duplicated
+        # right side cannot add or reorder rows, so `self.emb` stays positionally
+        # aligned with `self.catalog` -- which recommend() depends on absolutely.
+        self.style = self._load_sidecar(index_dir)
+        self.axis_quantiles = np.load(index_dir / "axis_quantiles.npy")
+        assert self.axis_quantiles.shape == (len(axes.STYLE_DIMENSIONS), axes.N_BREAKPOINTS)
+
         self.id_to_row = {a: i for i, a in enumerate(self.catalog["article_id"])}
         self._model = self._processor = self._device = None
+        self._axis_text_vecs = None          # lazily embedded on first project_profile
         if load_model:
             self._load_model()
+
+    def _load_sidecar(self, index_dir: Path) -> pd.DataFrame:
+        style = pd.read_parquet(index_dir / "style.parquet")
+        style = style.drop_duplicates(subset="article_id", keep="first")
+
+        before = len(self.catalog)
+        merged = self.catalog.merge(style, on="article_id", how="left", validate="m:1")
+        assert len(merged) == before, "sidecar join changed the row count"
+
+        # A row missing from the sidecar is not recommendable: we have no vector
+        # for it, so it can never be ranked or mapped to a Product.
+        merged["recommendable"] = merged["recommendable"].fillna(False).astype(bool)
+        merged["category"] = merged["category"].fillna("")
+        merged["colour_family"] = merged["colour_family"].fillna("neutral")
+        merged["formality"] = merged["formality"].fillna(3).astype(int)
+        merged["seasons"] = merged["seasons"].fillna("spring,summer,fall,winter")
+        for dim in axes.STYLE_DIMENSIONS:
+            merged[dim] = merged[dim].fillna(0.5).astype(np.float32)
+
+        self.catalog = merged
+        cols = ["article_id", "category", "colour_family", "formality",
+                "seasons", "recommendable", *axes.STYLE_DIMENSIONS]
+        return merged[cols]
 
     # ------------------------------------------------------------------ model
     def _load_model(self):
@@ -144,7 +178,10 @@ class StyleEngine:
         groups:  optional list of product_group_name values to restrict to.
         """
         profile = np.atleast_2d(profile)
-        mask = np.ones(len(self.emb), dtype=bool)
+        # Exclusion is a MASK, never a filter of self.catalog: self.emb is
+        # positionally aligned with it and dropping rows would silently return
+        # the wrong garments.
+        mask = self.catalog["recommendable"].to_numpy(dtype=bool).copy()
         if groups is not None:
             mask &= self.catalog["product_group_name"].isin(groups).to_numpy()
         for a in exclude_ids:
@@ -182,3 +219,21 @@ class StyleEngine:
         z = temperature * (sims - sims.max())
         p = np.exp(z) / np.exp(z).sum()
         return dict(sorted(zip(axes, p.tolist()), key=lambda kv: -kv[1]))
+
+    def _axis_prompt_vectors(self) -> np.ndarray:
+        """[18, d] prompt embeddings in axes.prompt_texts() order. Embedded once
+        per process: the prompts are constant, and a CLIP text forward pass per
+        profile read would dominate the request."""
+        if self._axis_text_vecs is None:
+            self._axis_text_vecs = self.embed_texts(axes.prompt_texts())
+        return self._axis_text_vecs
+
+    def project_profile(self, profile: np.ndarray) -> list:
+        """Projects a profile into the frontend's 9-dim StyleVector space,
+        percentile-ranked against the SAME catalog breakpoints the per-item
+        vectors were ranked against -- so profile and product vectors are
+        directly comparable by cosine similarity on the client."""
+        v = _normalize(np.atleast_2d(profile).mean(0, keepdims=True))
+        raw = axes.raw_scores(v, self._axis_prompt_vectors())
+        ranks = axes.percentile_rank(raw, self.axis_quantiles)
+        return [float(x) for x in ranks[0]]
