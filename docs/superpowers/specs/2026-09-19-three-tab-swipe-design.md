@@ -168,9 +168,10 @@ The Fits headline leads, because the outfit count is the number the demo points 
 5. Formality spread
 6. Gap cards (top 4) into `/product/[id]`
 7. "Your pieces" item grid with remove
-8. Outfit graph with tap-a-piece-to-highlight
+8. "Connections" — outfit graph with tap-a-piece-to-highlight
+9. "Your outfits" — the generated outfit rows (top 12)
 
-Empty states keep their current split: fewer than 3 items shows the Fits "Add a few pieces first" copy in place of the graph, and zero items shows "Your wardrobe is empty".
+Empty states keep their current split: zero items shows "Your wardrobe is empty" in place of everything below the header, and fewer than 3 items shows the Fits "Add a few pieces first" copy in place of sections 8 and 9.
 
 ---
 
