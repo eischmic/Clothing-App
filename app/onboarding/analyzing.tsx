@@ -90,7 +90,7 @@ export default function Analyzing() {
             <Text style={[type.title, { color: accent.bright }]}>{profile.tags.join(' · ')}</Text>
             <PaletteRow colors={profile.dominantColors} />
             <RadarChart vector={profile.vector} />
-            <PrimaryButton label="See your style" onPress={() => router.replace('/(tabs)' as never)} />
+            <PrimaryButton label="See your style" onPress={() => router.replace('/' as never)} />
           </View>
         )}
       </ScrollView>
