@@ -1,4 +1,4 @@
-// components/TabIcons.tsx — simple SVG glyphs for the five tab bar items.
+// components/TabIcons.tsx — simple SVG glyphs for the three tab bar items.
 // Uses react-native-svg only; no @expo/vector-icons dependency.
 
 import React from 'react';
@@ -59,6 +59,21 @@ export function WardrobeIcon({ color, size = 24 }: IconProps) {
         strokeLinejoin="round"
       />
       <Rect x="3" y="14" width="18" height="6" rx="1.5" stroke={color} strokeWidth={1.75} />
+    </Svg>
+  );
+}
+
+export function CompassIcon({ color, size = 24 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx="12" cy="12" r="8.5" stroke={color} strokeWidth={1.75} />
+      <Path
+        d="M15.4 8.6l-2 4.8-4.8 2 2-4.8 4.8-2z"
+        stroke={color}
+        strokeWidth={1.75}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </Svg>
   );
 }
