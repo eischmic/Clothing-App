@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
-import { useLocalSearchParams, router } from 'expo-router';
+import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '@/theme/useTheme';
 import { useAppStore } from '@/store/useAppStore';
@@ -9,23 +9,14 @@ import { INTENTS, type IntentId, rankProducts } from '@/lib/scoring';
 import { Chip, EmptyState, SectionHeader } from '@/components/primitives';
 import { ProductCard } from '@/components/ProductCard';
 
-export default function ExploreScreen() {
+export function ExplorePane() {
   const { base, type, spacing } = useTheme();
   const inspoImages = useAppStore((s) => s.inspoImages);
   const profile = useAppStore((s) => s.styleProfile);
   const wardrobe = useAppStore((s) => s.wardrobeItems);
-  const { intent } = useLocalSearchParams<{ intent?: string }>();
-  const [intentId, setIntentId] = useState<IntentId>(
-    INTENTS.some((x) => x.id === intent) ? (intent as IntentId) : 'surprise',
-  );
+  const [intentId, setIntentId] = useState<IntentId>('surprise');
   const [search, setSearch] = useState('');
   const [maxPrice, setMaxPrice] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (intent && INTENTS.some((x) => x.id === intent)) {
-      setIntentId(intent as IntentId);
-    }
-  }, [intent]);
 
   const results = useMemo(() => {
     if (!profile) return [];
@@ -122,10 +113,7 @@ export default function ExploreScreen() {
             />
           ))
         ) : (
-          <EmptyState
-            title="No pieces found"
-            body="Try a different intent, search, or price range."
-          />
+          <EmptyState title="No pieces found" body="Try a different intent, search, or price range." />
         )}
       </ScrollView>
     </SafeAreaView>
