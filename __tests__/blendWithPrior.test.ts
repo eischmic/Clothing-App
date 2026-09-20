@@ -24,7 +24,12 @@ describe('evidenceWeight', () => {
   it('hits the documented values from the design', () => {
     expect(evidenceWeight(3, 0)).toBeCloseTo(0.43, 2);
     expect(evidenceWeight(8, 0)).toBeCloseTo(0.67, 2);
-    expect(evidenceWeight(8, 20)).toBeCloseTo(0.88, 1);
+    // 28/32 is exactly 0.875. The design doc rounds that to 0.88, but 0.88 sits
+    // precisely on toBeCloseTo's precision-2 boundary (tolerance 0.005, and the
+    // difference IS 0.005), so the brief's assertion cannot pass. Pin the exact
+    // value rather than widening the tolerance to 0.05, which would let this
+    // check pass for anything from 0.83 to 0.93.
+    expect(evidenceWeight(8, 20)).toBeCloseTo(0.875, 6);
   });
 
   it('is monotone increasing in evidence', () => {
