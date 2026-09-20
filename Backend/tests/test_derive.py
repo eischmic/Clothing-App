@@ -150,6 +150,15 @@ def test_seasons_handles_missing_description():
     assert derive.derive_seasons(None, None) == ["spring", "summer", "fall", "winter"]
 
 
+@pytest.mark.parametrize("ptype", ["Coat", "Boots", "Parka", "Outdoor anorak"])
+def test_every_cold_type_token_is_cold_on_its_own(ptype):
+    # Each _COLD_TYPE_TOKENS entry must carry the cold signal from the type
+    # alone, with no help from the description. Without this, the type-only
+    # scan added to stop "coated"/"bootcut" firing in free text could silently
+    # lose a token and nothing would notice.
+    assert derive.derive_seasons("A garment.", ptype) == ["fall", "winter"]
+
+
 def test_coated_description_does_not_trigger_cold():
     # "coated" in desc should not be mistaken for the garment type "coat"
     assert derive.derive_seasons("Water-resistant coated shell.", "Jacket") == [
