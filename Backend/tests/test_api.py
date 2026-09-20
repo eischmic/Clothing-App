@@ -200,6 +200,10 @@ def test_profile_detail_carries_a_nine_dim_vector(client):
     vector = r.json()["vector"]
     assert len(vector) == 9
     assert all(0.0 <= v <= 1.0 for v in vector)
+    # An all-zeros vector would satisfy the range check above while meaning the
+    # projection never ran. Percentile ranks against a real catalog cannot all
+    # collapse to the floor.
+    assert any(v > 0.0 for v in vector)
 
 
 def test_create_profile_returns_reference_urls(client):

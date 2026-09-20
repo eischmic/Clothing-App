@@ -165,12 +165,15 @@ def _buy_url(article_id: str) -> str:
 def _to_profile_item(row, base_url: str) -> ProfileItem:
     """Catalog row -> wire Product. Callers must pass a recommendable row.
 
-    Every recommendable row is guaranteed a real category by the sidecar join,
-    so there is deliberately no category fallback here: silently substituting
-    one would turn an excluded garment into a plausible-looking top.
+    There are deliberately no `or <default>` fallbacks on the sidecar columns.
+    StyleEngine._join_sidecar already asserts that no recommendable row has a
+    null in any of them, so a fallback here could only ever fire on data that
+    is already known-broken -- and would hide it behind a plausible-looking
+    value instead. `category or "top"` did exactly that: it served excluded
+    Dresses as tops. Let a genuine hole raise instead.
     """
     assert bool(row["recommendable"]), f"{row['article_id']} is not recommendable"
-    seasons = str(row.get("seasons") or "")
+    seasons = str(row["seasons"])
     return ProfileItem(
         article_id=row["article_id"],
         name=_clean(row.get("prod_name")),
@@ -180,8 +183,8 @@ def _to_profile_item(row, base_url: str) -> ProfileItem:
         image_url=f"{base_url}thumbs/{row['image_rel']}",
         buy_url=_buy_url(row["article_id"]),
         category=str(row["category"]),
-        colour_family=str(row.get("colour_family") or "neutral"),
-        formality=int(row.get("formality") or 3),
+        colour_family=str(row["colour_family"]),
+        formality=int(row["formality"]),
         seasons=[s for s in seasons.split(",") if s],
         vector=[float(row[dim]) for dim in axes.STYLE_DIMENSIONS],
     )
