@@ -77,6 +77,112 @@ function resetStore() {
   });
 }
 
+const IMG_A: import('@/lib/types').InspoImage = {
+  id: 'img-1',
+  uri: 'data:image/jpeg;base64,/abc',
+  attributes: null,
+  uploadedAt: '2024-01-01T00:00:00.000Z',
+};
+
+const IMG_B: import('@/lib/types').InspoImage = {
+  id: 'img-2',
+  uri: 'data:image/jpeg;base64,/def',
+  attributes: null,
+  uploadedAt: '2024-01-01T00:00:00.000Z',
+};
+
+const IMG_C: import('@/lib/types').InspoImage = {
+  id: 'img-3',
+  uri: 'data:image/jpeg;base64,/ghi',
+  attributes: null,
+  uploadedAt: '2024-01-01T00:00:00.000Z',
+};
+
+function resetStoreWithImages() {
+  useAppStore.setState({
+    profiles: [
+      {
+        id: 'profile-1',
+        name: 'Profile 1',
+        backendProfileId: null,
+        wishlistIds: [],
+        rejectedIds: [],
+        savedOutfits: [],
+        referenceImages: [IMG_A, IMG_B, IMG_C],
+        wardrobeItems: [],
+        questionnaire: { sliders: defaultSliders(), words: [] },
+        profile: {} as never,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'profile-2',
+        name: 'Profile 2',
+        backendProfileId: null,
+        wishlistIds: [],
+        rejectedIds: [],
+        savedOutfits: [],
+        referenceImages: [IMG_A],
+        wardrobeItems: [],
+        questionnaire: { sliders: defaultSliders(), words: [] },
+        profile: {} as never,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+    ],
+    activeProfileId: 'profile-1',
+    catalog: {
+      feed: [],
+      byId: {},
+      status: 'idle',
+    },
+  });
+}
+
+describe('rewriteReferenceUris', () => {
+  beforeEach(resetStoreWithImages);
+
+  it('rewrites reference URIs positionally in order', () => {
+    useAppStore.getState().rewriteReferenceUris('profile-1', [
+      'https://cdn.example.com/ref-1.jpg',
+      'https://cdn.example.com/ref-2.jpg',
+      'https://cdn.example.com/ref-3.jpg',
+    ]);
+
+    const profile = useAppStore.getState().profiles.find((p) => p.id === 'profile-1')!;
+    expect(profile.referenceImages[0].uri).toBe('https://cdn.example.com/ref-1.jpg');
+    expect(profile.referenceImages[1].uri).toBe('https://cdn.example.com/ref-2.jpg');
+    expect(profile.referenceImages[2].uri).toBe('https://cdn.example.com/ref-3.jpg');
+    // id fields are preserved
+    expect(profile.referenceImages[0].id).toBe('img-1');
+    expect(profile.referenceImages[1].id).toBe('img-2');
+    expect(profile.referenceImages[2].id).toBe('img-3');
+  });
+
+  it('leaves tail images on their original local URIs when the server returns fewer URLs than the profile has images', () => {
+    useAppStore.getState().rewriteReferenceUris('profile-1', [
+      'https://cdn.example.com/ref-1.jpg',
+    ]);
+
+    const profile = useAppStore.getState().profiles.find((p) => p.id === 'profile-1')!;
+    expect(profile.referenceImages[0].uri).toBe('https://cdn.example.com/ref-1.jpg');
+    // tail images retain original local data URIs
+    expect(profile.referenceImages[1].uri).toBe(IMG_B.uri);
+    expect(profile.referenceImages[2].uri).toBe(IMG_C.uri);
+  });
+
+  it('leaves other profiles untouched', () => {
+    useAppStore.getState().rewriteReferenceUris('profile-1', [
+      'https://cdn.example.com/ref-1.jpg',
+      'https://cdn.example.com/ref-2.jpg',
+      'https://cdn.example.com/ref-3.jpg',
+    ]);
+
+    const other = useAppStore.getState().profiles.find((p) => p.id === 'profile-2')!;
+    expect(other.referenceImages[0].uri).toBe(IMG_A.uri);
+  });
+});
+
 describe('setActiveProfile', () => {
   beforeEach(resetStore);
 

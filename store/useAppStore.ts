@@ -85,6 +85,7 @@ export interface AppActions {
   loadDemoData:        () => void;
 
   setBackendProfileId: (profileId: string, backendProfileId: string | null) => void;
+  rewriteReferenceUris: (profileId: string, uris: string[]) => void;
   loadFeed:            () => Promise<void>;
   resolveProducts:     (ids: string[]) => Promise<void>;
 }
@@ -412,6 +413,23 @@ export const useAppStore = create<AppStore>()(
         set((s) => ({
           profiles: s.profiles.map((p) =>
             p.id === profileId ? { ...p, backendProfileId } : p,
+          ),
+        })),
+
+      rewriteReferenceUris: (profileId, uris) =>
+        set((s) => ({
+          profiles: s.profiles.map((p) =>
+            p.id === profileId
+              ? {
+                  ...p,
+                  // Positional: the server returns one reference per uploaded
+                  // photo, in upload order. A short response leaves the tail on
+                  // its original local URI, which still renders.
+                  referenceImages: p.referenceImages.map((img, i) =>
+                    uris[i] ? { ...img, uri: uris[i] } : img,
+                  ),
+                }
+              : p,
           ),
         })),
 
