@@ -442,6 +442,9 @@ export const useAppStore = create<AppStore>()(
           profiles: s.profiles.map((p) =>
             p.id === profileId ? { ...p, backendProfileId } : p,
           ),
+          catalog: profileId === s.activeProfileId
+            ? { ...s.catalog, feed: [], status: 'idle' }
+            : s.catalog,
         })),
 
       rewriteReferenceUris: (profileId, uris) =>

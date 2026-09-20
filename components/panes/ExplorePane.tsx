@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSharedValue } from 'react-native-reanimated';
 import { useTheme } from '@/theme/useTheme';
 import { useAppStore } from '@/store/useAppStore';
+import { createProfile as createBackendProfile } from '@/lib/backend';
 import { selectActiveProfile, selectCatalogFeed, selectRejectedIds } from '@/store/selectors';
 import {
   DECK_SLOT_ORDER,
@@ -33,6 +34,7 @@ export function ExplorePane({ onNavigateToPane }: { onNavigateToPane?: (index: n
   const { base, accent, type, spacing, reduceMotion } = useTheme();
   const profile = useAppStore(selectActiveProfile);
   const activeProfileId = useAppStore((s) => s.activeProfileId);
+  const activeRecord = useAppStore((s) => s.profiles.find((record) => record.id === s.activeProfileId));
   const rejectedIds = useAppStore(selectRejectedIds);
   const feed = useAppStore(selectCatalogFeed);
   const catalogStatus = useAppStore((s) => s.catalog.status);
@@ -41,6 +43,29 @@ export function ExplorePane({ onNavigateToPane }: { onNavigateToPane?: (index: n
   const rejectProduct = useAppStore((s) => s.rejectProduct);
   const clearRejections = useAppStore((s) => s.clearRejections);
   const saveOutfit = useAppStore((s) => s.saveOutfit);
+  const setBackendProfileId = useAppStore((s) => s.setBackendProfileId);
+  const rewriteReferenceUris = useAppStore((s) => s.rewriteReferenceUris);
+
+  const migrationAttemptedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !activeRecord ||
+      activeRecord.backendProfileId ||
+      activeRecord.referenceImages.length < 3 ||
+      migrationAttemptedFor.current === activeRecord.id
+    ) return;
+
+    migrationAttemptedFor.current = activeRecord.id;
+    void createBackendProfile(activeRecord.name, activeRecord.referenceImages.map((image) => image.uri))
+      .then(({ profile: backendProfile }) => {
+        if (!backendProfile) return;
+        setBackendProfileId(activeRecord.id, backendProfile.profile_id);
+        rewriteReferenceUris(
+          activeRecord.id,
+          backendProfile.references.map((reference) => reference.image_url),
+        );
+      });
+  }, [activeRecord, rewriteReferenceUris, setBackendProfileId]);
 
   // Fetch once per profile. `status` is the guard, so a re-render mid-flight
   // does not fire a second request.
