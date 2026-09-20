@@ -158,6 +158,56 @@ function mergeById(
   return next;
 }
 
+// ---- Persistence ----
+// The three pure halves of the persist config live here as named exports
+// rather than inline in the options object. They are the code that can
+// silently empty a user's closet on upgrade, and zustand does not expose the
+// options object at runtime under jest-expo -- inline, they are untestable.
+
+export const PERSIST_VERSION = 3;
+
+export function migratePersisted(persisted: unknown, version: number): AppStore {
+  let state = persisted;
+  if (version < 2) state = migrateV1ToV2(state as PersistedStateV1);
+  if (version < 3) state = migrateV2ToV3(state as PersistedStateV2);
+  return state as AppStore;
+}
+
+/**
+ * Only `byId` of the catalog slice is written. `feed` is a live ranked slice
+ * belonging to one profile and `status` describes the current session, so
+ * neither survives a restart.
+ */
+export function partializeState(state: AppStore) {
+  return {
+    profiles:        state.profiles,
+    activeProfileId: state.activeProfileId,
+    draft:           state.draft,
+    themeMode:       state.themeMode,
+    catalog:         { byId: state.catalog.byId },
+  };
+}
+
+/**
+ * zustand's default merge is a shallow spread, which would replace the whole
+ * `catalog` object with the partialized `{ byId }` and leave `feed` and
+ * `status` undefined. Merge the slice explicitly.
+ */
+export function mergePersisted(persisted: unknown, current: AppStore): AppStore {
+  const p = (persisted ?? {}) as Partial<AppStore> & {
+    catalog?: { byId?: Record<string, Product> };
+  };
+  return {
+    ...current,
+    ...p,
+    catalog: {
+      feed:   current.catalog.feed,
+      status: current.catalog.status,
+      byId:   p.catalog?.byId ?? current.catalog.byId,
+    },
+  } as AppStore;
+}
+
 // ---- Store ----
 
 const initialState: AppState = {
@@ -352,10 +402,17 @@ export const useAppStore = create<AppStore>()(
 
       loadFeed: async () => {
         const state = get();
-        const record = state.profiles.find((p) => p.id === state.activeProfileId);
+        // Captured, not re-read after the await. The feed is ranked FOR one
+        // profile, so if the user switches while the fetch is in flight, the
+        // response that lands belongs to the profile they left -- publishing it
+        // would show them someone else's recommendations marked 'ready'.
+        const requestedFor = state.activeProfileId;
+        const record = state.profiles.find((p) => p.id === requestedFor);
         set((s) => ({ catalog: { ...s.catalog, status: 'loading' } }));
 
         const products = await activeProvider(record?.backendProfileId ?? null).all();
+
+        if (get().activeProfileId !== requestedFor) return;
 
         // An empty pool is a degraded backend, not a real empty catalogue:
         // fall back so the deck keeps working rather than showing nothing.
@@ -398,40 +455,11 @@ export const useAppStore = create<AppStore>()(
     }),
     {
       name: 'fitlab-store',
-      version: 3,
-      migrate: (persisted, version) => {
-        let state = persisted as unknown;
-        if (version < 2) state = migrateV1ToV2(state as PersistedStateV1);
-        if (version < 3) state = migrateV2ToV3(state as PersistedStateV2);
-        return state as AppStore;
-      },
+      version: PERSIST_VERSION,
+      migrate: migratePersisted,
       storage: createJSONStorage(buildStorage),
-      partialize: (state) => ({
-        profiles:        state.profiles,
-        activeProfileId: state.activeProfileId,
-        draft:           state.draft,
-        themeMode:       state.themeMode,
-        // Only `byId`. `feed` is a live ranked slice and `status` describes the
-        // current session, so neither survives a restart.
-        catalog:         { byId: state.catalog.byId },
-      }),
-      // Default merge is a shallow spread, which would replace the whole
-      // `catalog` object with the partialized `{ byId }` and leave `feed` and
-      // `status` undefined. Merge the slice explicitly.
-      merge: (persisted, current) => {
-        const p = (persisted ?? {}) as Partial<AppStore> & {
-          catalog?: { byId?: Record<string, Product> };
-        };
-        return {
-          ...current,
-          ...p,
-          catalog: {
-            feed:   current.catalog.feed,
-            status: current.catalog.status,
-            byId:   p.catalog?.byId ?? current.catalog.byId,
-          },
-        } as AppStore;
-      },
+      partialize: partializeState,
+      merge: mergePersisted,
       onRehydrateStorage: () => (_state, _error) => {
         // Mark hydration complete once AsyncStorage rehydration finishes (or errors).
         useAppStore.setState({ hydrated: true });
