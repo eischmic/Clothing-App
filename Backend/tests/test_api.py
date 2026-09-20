@@ -265,6 +265,22 @@ def test_catalog_item_lookup_404s_on_a_non_recommendable_article(client):
     assert client.get(f"/catalog/{excluded}").status_code == 404
 
 
+def test_swipe_rejects_an_article_that_can_never_be_rendered(client):
+    # A swipe the wardrobe could not serve back must not be storable in the
+    # first place: /wardrobe would have to either 500 on the row or quietly
+    # drop a garment the user said they liked.
+    profile_id = _create_profile(client)
+    eng = client.app.state.engine
+    excluded = eng.catalog.loc[~eng.catalog["recommendable"], "article_id"].iloc[0]
+
+    for bad in (excluded, "0000000000"):
+        r = client.post(f"/profiles/{profile_id}/swipe",
+                        json={"article_id": bad, "liked": True})
+        assert r.status_code == 404, bad
+
+    assert client.get(f"/profiles/{profile_id}").json()["n_swipes"] == 0
+
+
 def test_sessions_endpoints_are_gone(client):
     assert client.post("/sessions/from-photos").status_code == 404
     assert client.get("/sessions/abc").status_code == 404

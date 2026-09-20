@@ -339,8 +339,19 @@ def next_items(
 
 
 @app.post("/profiles/{profile_id}/swipe", response_model=SwipeOut)
-def swipe(profile_id: str, body: SwipeIn):
+def swipe(profile_id: str, body: SwipeIn, request: Request):
     _get_db_profile(profile_id)
+
+    # Guard here rather than when reading the wardrobe back. /next only ever
+    # emits recommendable articles, but the endpoint takes an article_id from
+    # the client, and an unrecommendable one stored now is a row that can never
+    # be rendered later -- /wardrobe would either 500 on it or have to drop it
+    # silently, losing a garment the user said they liked. Refuse the write.
+    eng = _engine(request)
+    r = eng.id_to_row.get(body.article_id)
+    if r is None or not bool(eng.catalog.iloc[r]["recommendable"]):
+        raise HTTPException(status_code=404, detail="Unknown or non-recommendable article")
+
     DB.add_swipe(profile_id, body.article_id, body.liked)
     return SwipeOut(n_swipes=DB.count_swipes(profile_id))
 
