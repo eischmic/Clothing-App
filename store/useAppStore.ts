@@ -26,7 +26,7 @@ import {
   withWishlistToggled,
 } from '@/lib/profileRecords';
 import { activeProvider, FALLBACK_PRODUCTS } from '@/lib/catalog/index';
-import { getCatalogItem } from '@/lib/backend';
+import { getCatalogItem, swipe as backendSwipe } from '@/lib/backend';
 import { mapProfileItemToProduct } from '@/lib/catalog/backendMapper';
 import { migrateV1ToV2, migrateV2ToV3 } from '@/lib/stateMigration';
 import type { PersistedStateV1, PersistedStateV2 } from '@/lib/stateMigration';
@@ -209,6 +209,23 @@ export function mergePersisted(persisted: unknown, current: AppStore): AppStore 
   } as AppStore;
 }
 
+// ---- Swipe write-back ----
+
+/**
+ * Fire-and-forget. A lost swipe costs a little ranking quality; a swipe that
+ * blocks or throws costs the user their gesture, so the result is deliberately
+ * dropped. `backendSwipe` already never rejects; the catch is belt-and-braces.
+ */
+function reportSwipe(
+  state: AppState,
+  productId: string,
+  liked: boolean,
+): void {
+  const record = state.profiles.find((p) => p.id === state.activeProfileId);
+  if (!record?.backendProfileId) return;
+  void backendSwipe(record.backendProfileId, productId, liked).catch(() => undefined);
+}
+
 // ---- Store ----
 
 const initialState: AppState = {
@@ -353,10 +370,21 @@ export const useAppStore = create<AppStore>()(
       setStyleProfile: (profile) => set((s) => mutateActive(s, (r) => ({ ...r, profile }))),
 
       toggleWishlist: (productId) =>
-        set((s) => mutateActive(s, (r) => withWishlistToggled(r, productId))),
+        set((s) => {
+          const record = s.profiles.find((p) => p.id === s.activeProfileId);
+          // Only report the transition into the wishlist, not out of it — the
+          // backend has no un-swipe, and re-reporting would double-count.
+          if (record && !record.wishlistIds.includes(productId)) {
+            reportSwipe(s, productId, true);
+          }
+          return mutateActive(s, (r) => withWishlistToggled(r, productId));
+        }),
 
       rejectProduct: (productId) =>
-        set((s) => mutateActive(s, (r) => withProductRejected(r, productId))),
+        set((s) => {
+          reportSwipe(s, productId, false);
+          return mutateActive(s, (r) => withProductRejected(r, productId));
+        }),
 
       clearRejections: () => set((s) => mutateActive(s, (r) => ({ ...r, rejectedIds: [] }))),
 

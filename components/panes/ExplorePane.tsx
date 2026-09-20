@@ -11,15 +11,19 @@ import {
   buildOutfit,
   outfitProducts,
   refillSlot,
+  shouldRefill,
   type DeckContext,
   type DeckOutfit,
   type Slot,
 } from '@/lib/deck';
+import type { Product } from '@/lib/types';
 import { EmptyState, PrimaryButton } from '@/components/primitives';
 import { GarmentSwipeCard } from '@/components/GarmentSwipeCard';
 import { StylePill } from '@/components/StylePill';
 
 const MIN_ROW = 96;
+/** Feed size below which Explore re-fetches. Enough runway to keep shuffling. */
+const REFILL_THRESHOLD = 8;
 const MAX_ROW = 140;
 /** Dropped from display first when the rows cannot all fit. */
 const DROPPABLE: readonly Slot[] = ['knitwear', 'outerwear'];
@@ -43,6 +47,19 @@ export function ExplorePane({ onNavigateToPane }: { onNavigateToPane?: (index: n
   useEffect(() => {
     if (catalogStatus === 'idle') void loadFeed();
   }, [catalogStatus, loadFeed, activeProfileId]);
+
+  // The backend excludes already-swiped articles from /next, so the pool
+  // genuinely shrinks as the user swipes. Refill before it runs dry.
+  // Uses shouldRefill (a pure function) to avoid an infinite loop: the seeded
+  // provider returns the same array reference every call, so we track which
+  // feed we last requested a refill for and skip if it hasn't changed.
+  const lastRefillFeedRef = useRef<Product[] | null>(null);
+  useEffect(() => {
+    if (shouldRefill(feed, lastRefillFeedRef.current, rejectedIds, catalogStatus, REFILL_THRESHOLD)) {
+      lastRefillFeedRef.current = feed;
+      void loadFeed();
+    }
+  }, [feed, rejectedIds, catalogStatus, loadFeed]);
 
   const isCommitting = useSharedValue(false);
   const [deckHeight, setDeckHeight] = useState(0);
