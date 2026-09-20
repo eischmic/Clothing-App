@@ -111,7 +111,7 @@ export function SwipeTabBar({
             key={pane.id}
             accessibilityRole="tab"
             accessibilityLabel={pane.label}
-            accessibilityState={{ selected: selected === index }}
+            aria-selected={selected === index}
             onPress={() => {
               if (Platform.OS !== 'web') {
                 void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
