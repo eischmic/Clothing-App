@@ -130,36 +130,43 @@ describe('candidatesForSlot', () => {
 // Helpers: a small feed array and a distinct one to simulate provider returns.
 const FEED_A: import('@/lib/types').Product[] = CATALOG.slice(0, 5);
 const FEED_B: import('@/lib/types').Product[] = CATALOG.slice(0, 6); // different reference
+const PROFILE_A = 'profile-a';
+const PROFILE_B = 'profile-b';
 
 describe('shouldRefill', () => {
-  // (a) Offline/seeded: after one refill returns the same array object,
-  // no further refills should be triggered (prevents the infinite loop).
-  it('(a) returns false when feed reference is unchanged after a refill (seeded loop guard)', () => {
-    // Simulate: we fired a refill for FEED_A; the provider returned FEED_A again
-    // (same reference). lastRefillFeed === feed, so no second refill.
+  it('(a) returns false after a refill when the seeded feed is unchanged', () => {
     expect(
-      shouldRefill(FEED_A, FEED_A, [], 'ready', 8),
+      shouldRefill(
+        FEED_A,
+        { profileId: PROFILE_A, rejectedIds: [] },
+        { profileId: PROFILE_A, rejectedIds: [] },
+        'ready',
+        8,
+      ),
     ).toBe(false);
   });
 
-  // (b) Backend returning a small non-empty pool repeatedly must not loop.
-  // Same mechanics as (a): if the feed reference is unchanged, no refill.
-  it('(b) returns false when a small pool refill returned the same-sized (same-ref) feed', () => {
-    const smallFeed = CATALOG.slice(0, 3); // 3 items, below threshold of 8
-    // After refilling, lastRefillFeed === smallFeed → no more refills
+  it('(b) blocks a second refill when the backend returns a distinct small feed without another swipe', () => {
+    const smallFeedBeforeRefill = CATALOG.slice(0, 3);
+    const smallFeedAfterRefill = CATALOG.slice(3, 6);
+    const refillState = { profileId: PROFILE_A, rejectedIds: [] };
+
+    expect(smallFeedAfterRefill).not.toBe(smallFeedBeforeRefill);
     expect(
-      shouldRefill(smallFeed, smallFeed, [], 'ready', 8),
+      shouldRefill(smallFeedAfterRefill, refillState, refillState, 'ready', 8),
     ).toBe(false);
   });
 
-  // (c) A genuine new feed (different reference, with enough new items) must
-  // still trigger a refill when it drains again later.
-  it('(c) fires when feed has changed reference and remaining drops below threshold', () => {
-    // FEED_B is a new reference (different from null and from FEED_A).
-    // Reject all items in FEED_B to make remaining = 0.
+  it('(c) fires after another swipe drains the feed below the threshold', () => {
     const rejectedAll = FEED_B.map((p) => p.id);
     expect(
-      shouldRefill(FEED_B, FEED_A, rejectedAll, 'ready', 8),
+      shouldRefill(
+        FEED_B,
+        { profileId: PROFILE_A, rejectedIds: [] },
+        { profileId: PROFILE_A, rejectedIds: rejectedAll },
+        'ready',
+        8,
+      ),
     ).toBe(true);
   });
 
@@ -167,43 +174,69 @@ describe('shouldRefill', () => {
   it('(c) does not fire when remaining >= threshold despite changed reference', () => {
     // FEED_B has 6 items; threshold is 4; none rejected → remaining = 6 >= 4
     expect(
-      shouldRefill(FEED_B, null, [], 'ready', 4),
+      shouldRefill(
+        FEED_B,
+        null,
+        { profileId: PROFILE_A, rejectedIds: [] },
+        'ready',
+        4,
+      ),
     ).toBe(false);
   });
 
-  // (d) Switching active profile resets feed to [] (new reference), so
-  // lastRefillFeed (holding the old feed) !== [] → fresh refill budget.
-  it('(d) fires after profile switch resets feed to a new [] reference', () => {
+  it('(d) fires after switching to a profile with a fresh feed', () => {
     const emptyFeed: import('@/lib/types').Product[] = [];
-    // lastRefillFeed is the old feed (FEED_A); after switch, feed is a fresh [].
-    // remaining = 0 < threshold; feed !== lastRefillFeed → should refill.
     expect(
-      shouldRefill(emptyFeed, FEED_A, [], 'ready', 8),
+      shouldRefill(
+        emptyFeed,
+        { profileId: PROFILE_A, rejectedIds: [] },
+        { profileId: PROFILE_B, rejectedIds: [] },
+        'ready',
+        8,
+      ),
     ).toBe(true);
   });
 
   it('returns false when status is loading', () => {
     expect(
-      shouldRefill(FEED_A, null, [], 'loading', 8),
+      shouldRefill(
+        FEED_A,
+        null,
+        { profileId: PROFILE_A, rejectedIds: [] },
+        'loading',
+        8,
+      ),
     ).toBe(false);
   });
 
   it('returns false when status is idle', () => {
     expect(
-      shouldRefill(FEED_A, null, [], 'idle', 8),
+      shouldRefill(FEED_A, null, { profileId: PROFILE_A, rejectedIds: [] }, 'idle', 8),
     ).toBe(false);
   });
 
   it('returns false when status is degraded', () => {
     expect(
-      shouldRefill(FEED_A, null, [], 'degraded', 8),
+      shouldRefill(
+        FEED_A,
+        null,
+        { profileId: PROFILE_A, rejectedIds: [] },
+        'degraded',
+        8,
+      ),
     ).toBe(false);
   });
 
   it('returns true on first call (lastRefillFeed null) when remaining < threshold', () => {
     const tinyFeed = CATALOG.slice(0, 2); // 2 items < threshold 8
     expect(
-      shouldRefill(tinyFeed, null, [], 'ready', 8),
+      shouldRefill(
+        tinyFeed,
+        null,
+        { profileId: PROFILE_A, rejectedIds: [] },
+        'ready',
+        8,
+      ),
     ).toBe(true);
   });
 });
