@@ -4,7 +4,12 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '@/theme/useTheme';
 import { useAppStore } from '@/store/useAppStore';
-import { selectActiveProfile, selectWardrobe } from '@/store/selectors';
+import {
+  selectActiveProfile,
+  selectSavedOutfits,
+  selectWardrobe,
+  selectWishlistIds,
+} from '@/store/selectors';
 import { analyzeGaps, categoryCoverage, colorBalance, formalitySpread } from '@/lib/gaps';
 import { buildEdges, countOutfits, enumerateOutfits } from '@/lib/outfits';
 import { ALL_PRODUCTS } from '@/lib/catalog/seeded';
@@ -28,12 +33,18 @@ const FAMILY_HEX: Record<ColorFamily, string> = {
 
 const FORMALITY_LABELS = ['Athleisure', 'Casual', 'Smart', 'Dressy', 'Formal'] as const;
 
+const PRODUCT_BY_ID = new Map(ALL_PRODUCTS.map((p) => [p.id, p]));
+
 export function ClosetPane() {
   const { base, accent, type, spacing, radii } = useTheme();
   const wardrobeItems = useAppStore(selectWardrobe);
   const profile = useAppStore(selectActiveProfile);
   const remove = useAppStore((s) => s.removeWardrobeItem);
   const addWardrobeItems = useAppStore((s) => s.addWardrobeItems);
+  const wishlistIds = useAppStore(selectWishlistIds);
+  const savedOutfits = useAppStore(selectSavedOutfits);
+  const toggleWishlist = useAppStore((s) => s.toggleWishlist);
+  const removeSavedOutfit = useAppStore((s) => s.removeSavedOutfit);
   const [adding, setAdding] = useState(false);
   const [draftUris, setDraftUris] = useState<string[]>([]);
   const [highlightId, setHighlightId] = useState<string>();
@@ -153,10 +164,7 @@ export function ClosetPane() {
               }}
             >
               {COLOR_FAMILIES.map((family) => (
-                <View
-                  key={family}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
-                >
+                <View key={family} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <View
                     style={{
                       width: 10,
@@ -210,17 +218,19 @@ export function ClosetPane() {
 
             <SectionHeader title="Gaps in your wardrobe" />
             {gaps.length ? (
-              gaps.slice(0, 4).map((gap) => (
-                <GapCard
-                  key={gap.id}
-                  gap={gap}
-                  onPressSuggestion={
-                    gap.suggestion
-                      ? () => router.push(`/product/${gap.suggestion!.product.id}` as never)
-                      : undefined
-                  }
-                />
-              ))
+              gaps
+                .slice(0, 4)
+                .map((gap) => (
+                  <GapCard
+                    key={gap.id}
+                    gap={gap}
+                    onPressSuggestion={
+                      gap.suggestion
+                        ? () => router.push(`/product/${gap.suggestion!.product.id}` as never)
+                        : undefined
+                    }
+                  />
+                ))
             ) : (
               <Text style={[type.body, { color: base.textMid }]}>No major gaps right now.</Text>
             )}
@@ -286,6 +296,102 @@ export function ClosetPane() {
               </>
             )}
           </>
+        )}
+
+        {/* Outside the empty-wardrobe branch: you can want pieces before you
+            own any. */}
+        <SectionHeader title={`Want · ${wishlistIds.length}`} />
+        {wishlistIds.length ? (
+          wishlistIds.map((id) => {
+            // A stale persisted id must not crash the pane.
+            const product = PRODUCT_BY_ID.get(id);
+            if (!product) return null;
+            return (
+              <Surface
+                key={id}
+                level={2}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: spacing.sm,
+                  marginBottom: spacing.sm,
+                  padding: spacing.sm,
+                }}
+              >
+                <GarmentArt category={product.category} color={product.color} size={64} />
+                <View style={{ flex: 1 }}>
+                  <Text
+                    onPress={() => router.push(`/product/${product.id}` as never)}
+                    numberOfLines={2}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${product.name}, open details`}
+                    style={[type.body, { color: base.textHi, fontWeight: '700' }]}
+                  >
+                    {product.name}
+                  </Text>
+                  <Text style={[type.caption, { color: base.textMid }]}>
+                    {product.brand} · ${product.price}
+                  </Text>
+                </View>
+                <Text
+                  onPress={() => toggleWishlist(product.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${product.name} from Want`}
+                  style={[type.caption, { color: base.textLow, padding: spacing.xs }]}
+                >
+                  Remove
+                </Text>
+              </Surface>
+            );
+          })
+        ) : (
+          <Text style={[type.body, { color: base.textLow }]}>
+            Swipe a piece right on Explore to want it.
+          </Text>
+        )}
+
+        <SectionHeader title={`Saved outfits · ${savedOutfits.length}`} />
+        {savedOutfits.length ? (
+          savedOutfits.map((saved) => {
+            const pieces = saved.productIds.flatMap((id) => {
+              const product = PRODUCT_BY_ID.get(id);
+              return product ? [product] : [];
+            });
+            const total = pieces.reduce((sum, p) => sum + p.price, 0);
+            return (
+              <Surface
+                key={saved.id}
+                level={2}
+                style={{ gap: spacing.sm, marginBottom: spacing.sm, padding: spacing.sm }}
+              >
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  {pieces.map((product) => (
+                    <View key={product.id} style={{ flex: 1, alignItems: 'center' }}>
+                      <GarmentArt category={product.category} color={product.color} size={54} />
+                      <Text numberOfLines={1} style={[type.caption, { color: base.textMid }]}>
+                        {product.name}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={[type.body, { color: accent.bright, flex: 1 }]}>${total}</Text>
+                  <Text
+                    onPress={() => removeSavedOutfit(saved.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove saved outfit"
+                    style={[type.caption, { color: base.textLow, padding: spacing.xs }]}
+                  >
+                    Remove
+                  </Text>
+                </View>
+              </Surface>
+            );
+          })
+        ) : (
+          <Text style={[type.body, { color: base.textLow }]}>
+            Save an outfit on Explore to keep it here.
+          </Text>
         )}
       </ScrollView>
     </SafeAreaView>
