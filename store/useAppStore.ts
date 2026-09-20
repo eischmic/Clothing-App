@@ -15,6 +15,7 @@ import type {
 import { SLIDER_KEYS } from '@/lib/types';
 import { DEMO_PROFILE, DEMO_WARDROBE } from '@/lib/fixtures';
 import type { StyleProfile } from '@/lib/types';
+import { normalizePersistedState } from '@/lib/stateMigration';
 
 // ---- State ----
 
@@ -147,6 +148,8 @@ export const useAppStore = create<AppStore>()(
     }),
     {
       name: 'fitlab-store',
+      version: 1,
+      migrate: (persisted) => normalizePersistedState(persisted as Parameters<typeof normalizePersistedState>[0]) as unknown as AppStore,
       storage: createJSONStorage(buildStorage),
       partialize: (state) => ({
         questionnaire:   state.questionnaire,
