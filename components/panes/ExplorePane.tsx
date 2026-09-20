@@ -5,8 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSharedValue } from 'react-native-reanimated';
 import { useTheme } from '@/theme/useTheme';
 import { useAppStore } from '@/store/useAppStore';
-import { selectActiveProfile, selectRejectedIds } from '@/store/selectors';
-import { ALL_PRODUCTS } from '@/lib/catalog/seeded';
+import { selectActiveProfile, selectCatalogFeed, selectRejectedIds } from '@/store/selectors';
 import {
   DECK_SLOT_ORDER,
   buildOutfit,
@@ -31,10 +30,19 @@ export function ExplorePane({ onNavigateToPane }: { onNavigateToPane?: (index: n
   const profile = useAppStore(selectActiveProfile);
   const activeProfileId = useAppStore((s) => s.activeProfileId);
   const rejectedIds = useAppStore(selectRejectedIds);
+  const feed = useAppStore(selectCatalogFeed);
+  const catalogStatus = useAppStore((s) => s.catalog.status);
+  const loadFeed = useAppStore((s) => s.loadFeed);
   const toggleWishlist = useAppStore((s) => s.toggleWishlist);
   const rejectProduct = useAppStore((s) => s.rejectProduct);
   const clearRejections = useAppStore((s) => s.clearRejections);
   const saveOutfit = useAppStore((s) => s.saveOutfit);
+
+  // Fetch once per profile. `status` is the guard, so a re-render mid-flight
+  // does not fire a second request.
+  useEffect(() => {
+    if (catalogStatus === 'idle') void loadFeed();
+  }, [catalogStatus, loadFeed, activeProfileId]);
 
   const isCommitting = useSharedValue(false);
   const [deckHeight, setDeckHeight] = useState(0);
@@ -45,12 +53,12 @@ export function ExplorePane({ onNavigateToPane }: { onNavigateToPane?: (index: n
     () =>
       profile
         ? {
-            products: ALL_PRODUCTS,
+            products: feed,
             userVector: profile.vector,
             rejectedIds,
           }
         : null,
-    [profile, rejectedIds],
+    [profile, rejectedIds, feed],
   );
 
   // Deliberately keyed on the profile id, not `ctx`: rejecting a product
@@ -61,7 +69,7 @@ export function ExplorePane({ onNavigateToPane }: { onNavigateToPane?: (index: n
   useEffect(() => {
     setOutfit(ctxRef.current ? buildOutfit(ctxRef.current) : null);
     isCommitting.value = false;
-  }, [activeProfileId, isCommitting]);
+  }, [activeProfileId, isCommitting, feed.length]);
 
   const visibleSlots = useMemo(() => {
     if (!outfit) return [];

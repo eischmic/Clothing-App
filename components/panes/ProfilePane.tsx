@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -7,6 +7,7 @@ import { useAppStore } from '@/store/useAppStore';
 import {
   selectActiveProfile,
   selectActiveRecord,
+  selectCatalogById,
   selectQuestionnaire,
   selectReferenceImages,
   selectSavedOutfits,
@@ -26,7 +27,6 @@ import { ImagePickerGrid } from '@/components/ImagePickerGrid';
 import { RadarChart } from '@/components/RadarChart';
 import { PaletteRow } from '@/components/PaletteRow';
 import { GarmentArt } from '@/components/GarmentArt';
-import { ALL_PRODUCTS } from '@/lib/catalog/seeded';
 
 const SLIDERS: Array<[SliderKey, string, string]> = [
   ['minimalExpressive', 'Minimal', 'Expressive'],
@@ -151,6 +151,12 @@ export function ProfilePane() {
   const removeReferenceImage = useAppStore((s) => s.removeReferenceImage);
   const loadDemo = useAppStore((s) => s.loadDemoData);
   const saved = useAppStore(selectWishlistIds);
+  const productById = useAppStore(selectCatalogById);
+  const resolveProducts = useAppStore((s) => s.resolveProducts);
+
+  useEffect(() => {
+    if (saved.length) void resolveProducts(saved);
+  }, [saved, resolveProducts]);
 
   const startNewProfile = () => {
     beginDraft('New style');
@@ -284,7 +290,7 @@ export function ProfilePane() {
         <SectionHeader title="Want" />
         {saved.length ? (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
-            {ALL_PRODUCTS.filter((p) => saved.includes(p.id)).map((p) => (
+            {saved.flatMap((id) => productById[id] ?? []).map((p) => (
               <View key={p.id}>
                 <GarmentArt category={p.category} color={p.color} size={82} />
                 <Text style={[type.caption, { color: base.textMid }]}>{p.name}</Text>
