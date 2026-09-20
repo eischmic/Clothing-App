@@ -7,7 +7,40 @@ export function PrimaryButton({ label, onPress, disabled = false, loading = fals
 }) {
   const { base, accent, radii, spacing, type } = useTheme();
   const solid = variant === 'solid';
-  return <Pressable disabled={disabled || loading} onPress={onPress} accessibilityRole="button" accessibilityState={{ disabled: disabled || loading, busy: loading }} accessibilityLabel={label} style={[{ minHeight: 48, opacity: disabled ? 1 : 1, borderRadius: radii.chip, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.lg, borderWidth: solid ? 0 : 1, borderColor: disabled ? base.hairline : accent.dim, backgroundColor: disabled ? base.elev3 : solid ? accent.base : 'transparent' }, style]}>
-    {loading ? <ActivityIndicator color={solid ? base.canvas : accent.base} /> : <Text style={[type.body, { fontWeight: '700', color: disabled ? base.textLow : solid ? base.canvas : accent.bright }]}>{label}</Text>}
-  </Pressable>;
+  return (
+    <Pressable
+      disabled={disabled || loading}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: disabled || loading, busy: loading }}
+      accessibilityLabel={label}
+      style={[
+        {
+          minHeight: 48,
+          opacity: disabled ? 0.55 : 1,
+          borderRadius: radii.chip,
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingHorizontal: spacing.lg,
+          borderWidth: solid ? 0 : 1,
+          borderColor: disabled ? base.hairline : accent.dim,
+          backgroundColor: disabled ? base.elev3 : solid ? accent.base : 'transparent',
+        },
+        style,
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator color={solid ? base.canvas : accent.base} />
+      ) : (
+        <Text
+          style={[
+            type.body,
+            { fontWeight: '700', color: disabled ? base.textLow : solid ? base.canvas : accent.bright },
+          ]}
+        >
+          {label}
+        </Text>
+      )}
+    </Pressable>
+  );
 }
