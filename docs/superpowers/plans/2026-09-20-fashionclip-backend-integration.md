@@ -6,7 +6,7 @@
 
 **Architecture:** FashionCLIP is a *retrieval and vector stage feeding* the existing interpretable 9-dimension ranker — it does not replace it. Garment style vectors are produced offline by contrastive text-axis projection (one positive + one negative prompt per frontend dimension), percentile-normalised against the 20,000-item catalog distribution, and written to a **sidecar** `index/style.parquet` that is left-joined onto the untouched raw `catalog.parquet` at load time. On the client, a new `catalog` store slice holds a ranked `feed` (not persisted) and a `byId` cache of every product ever resolved (persisted), so a cold start with the backend down still renders the user's closet.
 
-**Tech Stack:** Expo 57 / expo-router / React Native 0.86.3 / React 19.2.3 / TypeScript / zustand 5 + `persist` + AsyncStorage / jest-expo. Backend: Python 3.12 / FastAPI / `patrickjohncyh/fashion-clip` / numpy / pandas / pyarrow / SQLite / pytest.
+**Tech Stack:** Expo 57 / expo-router / React Native 0.86.3 / React 19.2.3 / TypeScript / zustand 5 + `persist` + AsyncStorage / jest-expo. Backend: Python 3.14 / FastAPI / `patrickjohncyh/fashion-clip` / numpy / pandas / pyarrow / SQLite / pytest.
 
 **Design spec:** `docs/superpowers/specs/2026-09-20-fashionclip-backend-integration-design.md`. Every task below cites the spec sections it implements.
 
@@ -20,7 +20,7 @@
 - **Network timeout is 20 s**, via `AbortSignal.timeout(20_000)`, mirroring `lib/api.ts`.
 - **`embeddings.npy` is positionally aligned with `catalog.parquet`.** Never drop, reorder, or filter rows from `self.catalog` in `engine.py`. Exclusion is always a boolean mask.
 - **`StyleVector` is 9 dimensions**, exactly: `minimalism, streetwear, workwear, outdoor, vintage, formal, colorfulness, pattern, relaxedFit`. The backend's separate 10-axis `STYLE_AXES` list is for display copy only and never feeds ranking. Never map between the two spaces.
-- **Python version floor/ceiling for `Backend/`: 3.12 exactly.** PyTorch has no 3.14 wheels.
+- **All backend commands run through `Backend/.venv/bin/python`.** Never the system interpreter. No Python version pin — `torch 2.14.0` ships a `cp314-macosx_14_0_arm64` wheel, so the system 3.14 is fine.
 - **Backend tests must run without torch.** Use the existing `StyleEngine(load_model=False)` flag and the `monkeypatch` stubs in `Backend/tests/test_api.py`.
 - **Test commands:** frontend `npx jest <path>`; backend `cd Backend && .venv/bin/python -m pytest <path> -v`.
 - **Commit after every task.** Each task leaves the app working.
@@ -551,46 +551,49 @@ SCORE_WEIGHTS renormalised to style 0.60 / wardrobe 0.25 / occasion 0.15."
 
 ---
 
-## Task 2: Pin a Python 3.12 virtualenv for `Backend/`
+## Task 2: Create the `Backend/` virtualenv
 
-Implements spec §12 step 1a. **Blocking** — nothing in Tasks 3–7 can be verified until this passes. This machine runs Python 3.14; PyTorch publishes no 3.14 wheels, so `pip install -r requirements-api.txt` fails outright on the system interpreter.
+Implements spec §12 step 1a. **Blocking** — nothing in Tasks 3–7 can be verified until this passes.
+
+The spec's §12 risk ("PyTorch has no 3.14 wheels, pin 3.12") was checked against
+PyPI before execution and is **stale**. `torch 2.14.0` publishes
+`cp312`, `cp313`, and `cp314` wheels for `macosx_14_0_arm64`, and the full
+`requirements-api.txt` resolves clean on 3.14 (`torch==2.14.0`,
+`transformers==5.17.0`, `pandas==3.0.6`, `numpy==2.5.3`). There is no version
+pin and no `.python-version` file. The venv still exists for isolation — a
+200 MB torch does not belong in system site-packages — and every later backend
+command in this plan runs through `Backend/.venv/bin/python`.
 
 **Files:**
-- Create: `Backend/.python-version`
-- Modify: `Backend/requirements-api.txt`
+- No files created or modified. This task produces an untracked, git-ignored `Backend/.venv/`.
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `Backend/.venv/bin/python` — a Python 3.12 interpreter with torch, transformers, numpy, pandas, pyarrow, fastapi, pytest, httpx installed. Every later backend command in this plan uses this exact path.
+- Produces: `Backend/.venv/bin/python` — an interpreter with torch, transformers, numpy, pandas, pyarrow, fastapi, pytest, httpx installed. Every later backend command in this plan uses this exact path.
 
-- [ ] **Step 1: Confirm a 3.12 interpreter exists**
-
-```bash
-python3.12 --version || brew install python@3.12
-```
-
-Expected: `Python 3.12.x`
-
-- [ ] **Step 2: Create and populate the venv**
+- [ ] **Step 1: Create and populate the venv**
 
 ```bash
 cd Backend
-python3.12 -m venv .venv
+python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -r requirements-api.txt
 ```
 
-Expected: installs without a `Could not find a version that satisfies the requirement torch` error.
+Expected: installs without error. This downloads roughly 200 MB and takes a few minutes.
 
-- [ ] **Step 3: Verify torch actually imports**
+- [ ] **Step 2: Verify the heavy imports actually work**
+
+Resolving a wheel and importing it are different things — a `cp314` wheel that
+segfaults on import would still have installed cleanly above.
 
 ```bash
-cd Backend && .venv/bin/python -c "import torch, transformers, pandas, pyarrow; print(torch.__version__)"
+cd Backend && .venv/bin/python -c "import torch, transformers, pandas, pyarrow; print(torch.__version__, pandas.__version__)"
 ```
 
-Expected: a version string, e.g. `2.5.1`. No traceback.
+Expected: two version strings. No traceback.
 
-- [ ] **Step 4: Confirm the existing backend suite is green**
+- [ ] **Step 3: Confirm the existing backend suite is green**
 
 ```bash
 cd Backend && .venv/bin/python -m pytest tests/ -v
@@ -598,37 +601,18 @@ cd Backend && .venv/bin/python -m pytest tests/ -v
 
 Expected: all tests PASS. These tests monkeypatch `StyleEngine._load_model` and `embed_images`, so they pass even without a downloaded model — but they must pass *now*, before any change, as the baseline.
 
-- [ ] **Step 5: Record the pin and ignore the venv**
+- [ ] **Step 4: Confirm the venv is git-ignored, and commit nothing**
 
-Create `Backend/.python-version`:
+`.gitignore` line 52 is a bare `.venv/`, which matches at any depth including
+`Backend/.venv/`. Confirm rather than duplicate:
 
-```
-3.12
-```
+Run: `git check-ignore -v Backend/.venv`
+Expected: one line pointing at `.gitignore:52`.
 
-Add to `requirements-api.txt` as the first line:
-
-```
-# Requires Python 3.12 — torch publishes no 3.13+ wheels as of 2026-09.
-```
-
-Do **not** touch `.gitignore`. Both rules you would be tempted to add are
-already there — `.venv/` on line 52 (a bare pattern, so it matches at any depth,
-including `Backend/.venv/`) and `Backend/data/` on line 54. Confirm rather than
-duplicate:
-
-Run: `git check-ignore -v Backend/.venv Backend/data`
-Expected: two lines, both pointing at `.gitignore`.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add Backend/.python-version Backend/requirements-api.txt
-git commit -m "build: pin Backend to Python 3.12
-
-PyTorch has no wheels for the system 3.14 interpreter. All backend
-commands run through Backend/.venv/bin/python from here on."
-```
+Run: `git status --short`
+Expected: no output. **This task commits nothing** — it produces only a local,
+ignored directory. Do not create a `.python-version` file and do not add a
+version comment to `requirements-api.txt`; there is no pin to record.
 
 ---
 
