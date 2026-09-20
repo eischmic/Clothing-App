@@ -76,6 +76,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T | null> {
 /** Turns a data URI or a local file URI into a Blob for multipart upload. */
 async function uriToBlob(uri: string): Promise<Blob> {
   const response = await fetch(uri);
+  // Without this check an expired picker URI that now 403s yields a perfectly
+  // valid near-empty Blob, and we upload that as the user's reference photo.
+  // The throw is caught by createProfile's try/catch and surfaces as degraded.
+  if (!response.ok) throw new Error(`could not read ${uri}: ${response.status}`);
   return response.blob();
 }
 
