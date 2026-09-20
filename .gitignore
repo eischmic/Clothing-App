@@ -45,3 +45,12 @@ yarn-error.*
 
 # project secrets/config
 .superpowers/
+
+# Python (Backend/)
+__pycache__/
+*.pyc
+.venv/
+venv/
+Backend/data/
+*.db
+*.sqlite3

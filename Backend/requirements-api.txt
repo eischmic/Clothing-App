@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pillow
+numpy
+pandas
+pyarrow
+torch
+transformers
+
+# dev / tests
+pytest
+httpx

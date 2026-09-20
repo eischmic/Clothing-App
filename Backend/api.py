@@ -35,12 +35,18 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 from pydantic import BaseModel
 
+from db import Database
 from engine import StyleEngine
 
 INDEX_DIR = os.environ.get("INDEX_DIR", "index")
 THUMBS_DIR = Path(os.environ.get("THUMBS_DIR", "thumbs"))
 STYLE_TEMPERATURE = float(os.environ.get("STYLE_TEMPERATURE", "40"))
 MAX_PHOTOS = 12
+
+DB_PATH = os.environ.get("DB_PATH", "data/fitlab.db")
+REFS_DIR = os.environ.get("REFS_DIR", "data/references")
+MIN_PROFILE_PHOTOS = 5
+MAX_PROFILE_PHOTOS = 15
 
 
 # ----------------------------------------------------------------- schemas
@@ -81,6 +87,61 @@ class FeedbackOut(BaseModel):
     style_breakdown: Dict[str, float]
 
 
+# --- /profiles contract (persistent, SQLite-backed) -------------------------
+class ProfileItem(BaseModel):
+    article_id: str
+    name: Optional[str] = None
+    product_type: Optional[str] = None
+    colour: Optional[str] = None
+    description: Optional[str] = None
+    image_url: str
+    buy_url: str
+
+
+class ProfileOut(BaseModel):
+    profile_id: str
+    name: str
+    n_refs: int
+
+
+class ProfileSummary(BaseModel):
+    profile_id: str
+    name: str
+    n_swipes: int
+
+
+class ProfileDetail(BaseModel):
+    profile_id: str
+    name: str
+    n_refs: int
+    n_swipes: int
+    n_liked: int
+    style_breakdown: Dict[str, float]
+
+
+class NextOut(BaseModel):
+    items: List[ProfileItem]
+
+
+class SwipeIn(BaseModel):
+    article_id: str
+    liked: bool
+
+
+class SwipeOut(BaseModel):
+    n_swipes: int
+
+
+class ReferencePhotoOut(BaseModel):
+    ref_id: str
+    image_url: str
+
+
+class WardrobeOut(BaseModel):
+    liked: List[ProfileItem]
+    references: List[ReferencePhotoOut]
+
+
 # ------------------------------------------------------------------- state
 @dataclass
 class Session:
@@ -113,6 +174,11 @@ if THUMBS_DIR.is_dir():
     app.mount("/thumbs", StaticFiles(directory=THUMBS_DIR), name="thumbs")
 else:
     print(f"warning: {THUMBS_DIR} not found, so image_url links will 404", flush=True)
+
+# Persistent profiles/reference-photos/swipes. DB.init() creates data/ on first run.
+DB = Database(db_path=DB_PATH, refs_dir=REFS_DIR)
+DB.init()
+app.mount("/references", StaticFiles(directory=DB.refs_dir), name="references")
 
 
 # ----------------------------------------------------------------- helpers
@@ -157,6 +223,48 @@ def _to_item(row, base_url: str) -> Item:
         image_url=f"{base_url}thumbs/{row['image_rel']}",
         score=float(row["score"]),
     )
+
+
+def _buy_url(article_id: str) -> str:
+    """Placeholder retailer link. article_ids are H&M's own product codes, so
+    this happens to resolve to a real product page; treat it as a placeholder
+    regardless, per the vertical-slice plan."""
+    return f"https://www2.hm.com/en_us/productpage.{article_id}.html"
+
+
+def _to_profile_item(row, base_url: str) -> ProfileItem:
+    return ProfileItem(
+        article_id=row["article_id"],
+        name=_clean(row.get("prod_name")),
+        product_type=_clean(row.get("product_type_name")),
+        colour=_clean(row.get("colour_group_name")),
+        description=_clean(row.get("detail_desc")),
+        image_url=f"{base_url}thumbs/{row['image_rel']}",
+        buy_url=_buy_url(row["article_id"]),
+    )
+
+
+def _get_db_profile(profile_id: str):
+    row = DB.get_profile(profile_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Unknown profile_id")
+    return row
+
+
+def _compute_profile_vector(eng: StyleEngine, profile_id: str) -> np.ndarray:
+    """Rebuilds the profile vector from reference photos + full swipe history
+    on every call, rather than caching it -- cheap at this scale and keeps
+    the logic simple (no cached state to invalidate)."""
+    refs = DB.get_reference_embeddings(profile_id)
+    profile = eng.build_profile(refs, k=1)
+    for swipe in DB.list_swipes(profile_id):
+        liked = bool(swipe["liked"])
+        profile = eng.feedback_update(
+            profile,
+            liked_ids=[swipe["article_id"]] if liked else [],
+            disliked_ids=[] if liked else [swipe["article_id"]],
+        )
+    return profile
 
 
 # --------------------------------------------------------------- endpoints
@@ -267,3 +375,107 @@ def feedback(session_id: str, body: FeedbackIn, request: Request):
         applied=len(liked) + len(disliked),
         style_breakdown=_breakdown(eng, s.profile),
     )
+
+
+# ----------------------------------------------------- /profiles endpoints
+# Persistent counterpart to /sessions, backed by SQLite (see db.py). Kept
+# alongside /sessions until the frontend switches over to this contract.
+@app.post("/profiles", response_model=ProfileOut)
+def create_profile(
+    request: Request,
+    name: str = Form(...),
+    files: List[UploadFile] = File(...),
+):
+    if not (MIN_PROFILE_PHOTOS <= len(files) <= MAX_PROFILE_PHOTOS):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Send between {MIN_PROFILE_PHOTOS} and {MAX_PROFILE_PHOTOS} photos",
+        )
+
+    images = []
+    for f in files:
+        try:
+            img = Image.open(f.file)
+            img = ImageOps.exif_transpose(img) or img      # phone photos: fix rotation
+            img = img.convert("RGB")
+            img.thumbnail((1024, 1024))
+            images.append(img)
+        except Exception:
+            raise HTTPException(status_code=400, detail=f"Could not read '{f.filename}' as an image")
+
+    eng = _engine(request)
+    with MODEL_LOCK:
+        vecs = eng.embed_images(images)
+
+    profile_id, _ = DB.create_profile(name)
+    for img, vec in zip(images, vecs):
+        _ref_id, rel_path = DB.add_reference_photo(profile_id, vec)
+        dest = DB.refs_dir / rel_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        img.save(dest, format="JPEG", quality=85)
+
+    return ProfileOut(profile_id=profile_id, name=name, n_refs=len(images))
+
+
+@app.get("/profiles", response_model=List[ProfileSummary])
+def list_profiles():
+    return [
+        ProfileSummary(profile_id=r["profile_id"], name=r["name"], n_swipes=r["n_swipes"])
+        for r in DB.list_profiles()
+    ]
+
+
+@app.get("/profiles/{profile_id}", response_model=ProfileDetail)
+def get_profile(profile_id: str, request: Request):
+    row = _get_db_profile(profile_id)
+    eng = _engine(request)
+    profile_vec = _compute_profile_vector(eng, profile_id)
+    return ProfileDetail(
+        profile_id=profile_id,
+        name=row["name"],
+        n_refs=DB.count_reference_photos(profile_id),
+        n_swipes=DB.count_swipes(profile_id),
+        n_liked=DB.count_liked(profile_id),
+        style_breakdown=_breakdown(eng, profile_vec),
+    )
+
+
+@app.get("/profiles/{profile_id}/next", response_model=NextOut)
+def next_items(
+    profile_id: str,
+    request: Request,
+    n: int = Query(10, ge=1, le=100),
+):
+    _get_db_profile(profile_id)
+    eng = _engine(request)
+    profile_vec = _compute_profile_vector(eng, profile_id)
+    exclude = DB.get_swiped_article_ids(profile_id)
+    recs = eng.recommend(profile_vec, n=n, exclude_ids=exclude)
+    base = str(request.base_url)
+    return NextOut(items=[_to_profile_item(row, base) for _, row in recs.iterrows()])
+
+
+@app.post("/profiles/{profile_id}/swipe", response_model=SwipeOut)
+def swipe(profile_id: str, body: SwipeIn):
+    _get_db_profile(profile_id)
+    DB.add_swipe(profile_id, body.article_id, body.liked)
+    return SwipeOut(n_swipes=DB.count_swipes(profile_id))
+
+
+@app.get("/profiles/{profile_id}/wardrobe", response_model=WardrobeOut)
+def wardrobe(profile_id: str, request: Request):
+    _get_db_profile(profile_id)
+    eng = _engine(request)
+    base = str(request.base_url)
+
+    liked_items = []
+    for article_id in DB.get_liked_article_ids(profile_id):
+        r = eng.id_to_row.get(article_id)
+        if r is not None:
+            liked_items.append(_to_profile_item(eng.catalog.iloc[r], base))
+
+    references = [
+        ReferencePhotoOut(ref_id=r["ref_id"], image_url=f"{base}references/{r['image_path']}")
+        for r in DB.list_reference_photos(profile_id)
+    ]
+    return WardrobeOut(liked=liked_items, references=references)
